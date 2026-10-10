@@ -50,14 +50,14 @@ public:
 	float MinDistanceFromTrails = 250.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawning", meta = (ClampMin = "0"))
-	float MinDistanceBetweenPickups = 1500.f;
+	float MinDistanceBetweenPickups = 2000.f;
 
 	/** Candidate points are a lattice over the arena at this spacing, inset from the walls. "Predefined, safely randomized." */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawning", meta = (ClampMin = "200"))
-	float SpawnPointSpacing = 1500.f;
+	float SpawnPointSpacing = 2000.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawning", meta = (ClampMin = "0"))
-	float SpawnPointInset = 900.f;
+	float SpawnPointInset = 1100.f;
 
 	/** Relative chance of each type. Missing or zero entries never spawn. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawning")

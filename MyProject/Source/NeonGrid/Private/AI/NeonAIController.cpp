@@ -77,8 +77,9 @@ FName ANeonAIController::GetStateName() const
 	case EState::Cruise: return TEXT("Cruise");
 	case EState::Turn:   return TEXT("Turn");
 	case EState::Avoid:  return TEXT("Avoid");
-	case EState::Chase:  return TEXT("Chase");
-	case EState::Doomed: return TEXT("Doomed");
+	case EState::Chase:   return TEXT("Chase");
+	case EState::Collect: return TEXT("Collect");
+	case EState::Doomed:  return TEXT("Doomed");
 	}
 	return NAME_None;
 }
@@ -373,6 +374,10 @@ void ANeonAIController::Decide(bool bEmergency)
 	{
 		NewState = EState::Avoid;
 	}
+	else if (P.CollectWeight > 0.f && Pick.Collect > 0.7f)
+	{
+		NewState = EState::Collect;
+	}
 	else if (P.ChaseWeight > 0.f && Pick.Chase > 0.75f && Pick.Plan.Steering != 0.f)
 	{
 		NewState = EState::Chase;
@@ -556,9 +561,15 @@ float ANeonAIController::PredictedSpeed(const UNeonMovementComponent& M) const
 
 float ANeonAIController::FullSteerTurnRateDeg(const UNeonMovementComponent& M, float Speed) const
 {
-	// Same clamp as UNeonMovementComponent::ComputeTurnRateDegrees without powerup multipliers.
+	// Same clamp as UNeonMovementComponent::ComputeTurnRateDegrees, including the vehicle's current
+	// powerup turn-rate multiplier (Boost / Overdrive / EMP) so a boosted or jammed AI plans with the
+	// turning circle it actually has.
 	const UNeonVehicleConfig* C = M.GetConfig();
 	float Rate = C->MaxTurnRate;
+	if (const UNeonPowerupComponent* Powerups = M.GetPowerups())
+	{
+		Rate *= FMath::Clamp(Powerups->GetTurnRateMultiplier(), 0.01f, 1.f);
+	}
 	if (C->MinTurnRadius > KINDA_SMALL_NUMBER)
 	{
 		Rate = FMath::Min(Rate, FMath::RadiansToDegrees(Speed / C->MinTurnRadius));
@@ -568,10 +579,10 @@ float ANeonAIController::FullSteerTurnRateDeg(const UNeonMovementComponent& M, f
 
 bool ANeonAIController::IsStepLethal(const UNeonMovementComponent& M, const FNeonAIDifficultyParams& P, float Radius, const FVector2D& From, const FVector2D& To, float TimeAhead) const
 {
-	// Boundary.
+	// Boundary, where it will be at TimeAhead (the walls move during the collapse, D27).
 	if (M.HasArenaBounds())
 	{
-		const FBox2D& B = M.GetArenaBounds();
+		const FBox2D B = M.GetArenaBoundsAt(TimeAhead);
 		if (To.X < B.Min.X + Radius || To.X > B.Max.X - Radius ||
 			To.Y < B.Min.Y + Radius || To.Y > B.Max.Y - Radius)
 		{

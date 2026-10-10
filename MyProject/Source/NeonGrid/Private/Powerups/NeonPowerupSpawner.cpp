@@ -93,6 +93,11 @@ void UNeonPowerupSpawner::TickComponent(float DeltaTime, ELevelTick TickType, FA
 
 void UNeonPowerupSpawner::ExpirePickups(float DeltaTime)
 {
+	// Pickups the collapsing wall has passed over are removed too (D27).
+	const ANeonArena* A = Arena.Get();
+	const FBox2D Bounds = A ? A->GetBounds() : FBox2D(ForceInit);
+	const float Margin = GetConfig()->PickupRadius;
+
 	for (int32 i = Pickups.Num() - 1; i >= 0; --i)
 	{
 		ANeonPowerupPickup* P = Pickups[i];
@@ -103,9 +108,16 @@ void UNeonPowerupSpawner::ExpirePickups(float DeltaTime)
 		}
 		float& Remaining = Lifetimes.FindOrAdd(P);
 		Remaining -= DeltaTime;
-		if (Remaining <= 0.f)
+		bool bOutside = false;
+		if (A)
 		{
-			UE_LOG(LogNeonGrid, Verbose, TEXT("Pickup %s expired."), *UEnum::GetValueAsString(P->GetPowerupType()));
+			const FVector2D Pos = P->GetPosition2D();
+			bOutside = Pos.X < Bounds.Min.X + Margin || Pos.X > Bounds.Max.X - Margin ||
+				Pos.Y < Bounds.Min.Y + Margin || Pos.Y > Bounds.Max.Y - Margin;
+		}
+		if (Remaining <= 0.f || bOutside)
+		{
+			UE_LOG(LogNeonGrid, Verbose, TEXT("Pickup %s %s."), *UEnum::GetValueAsString(P->GetPowerupType()), bOutside ? TEXT("swallowed by the wall") : TEXT("expired"));
 			Lifetimes.Remove(P);
 			P->Destroy();
 			Pickups.RemoveAt(i);

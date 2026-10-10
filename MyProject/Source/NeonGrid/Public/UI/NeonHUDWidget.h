@@ -9,19 +9,25 @@ class UTextBlock;
 class UButton;
 class UWidget;
 class UProgressBar;
+class UVerticalBox;
 class ANeonGameState;
 class ANeonPlayerState;
+class ANeonArena;
 class UNeonPowerupComponent;
 
 /**
- * In-match HUD (guide section 69): one score entry per slot in the four corners, round number top
- * center, and a center message for countdown / round result / match result. In MatchResults it also
- * shows REMATCH and MAIN MENU buttons. Bottom center: the powerup slot (held name, ACTIVE / ARMED
- * state, a bar for the time left) or a STEERING JAMMED warning while hit by EMP (Milestone 4).
+ * In-match HUD (guide section 69).
+ *
+ *   Top left:      standings panel, one row per slot (color swatch, name, wins), dimmed when out.
+ *   Top center:    round number / score limit, and the closing-walls warning (DECISIONS.md D27).
+ *   Top right:     vehicles still alive.
+ *   Center:        countdown, GO, round / match result; in MatchResults the final standings and
+ *                  REMATCH / MAIN MENU buttons. A dead player sees who the camera is following.
+ *   Bottom center: the powerup slot (held name, ACTIVE / ARMED, time bar) or STEERING JAMMED (M4).
  *
  * The tree is built in code when no Blueprint subclass provides one. Named members are
  * BindWidgetOptional so a designer can lay the same elements out in UMG and keep this logic.
- * Reads ANeonGameState / ANeonPlayerState every tick; writes nothing.
+ * Reads ANeonGameState / ANeonPlayerState / ANeonArena every tick; writes nothing.
  */
 UCLASS(Blueprintable)
 class NEONGRID_API UNeonHUDWidget : public UUserWidget
@@ -33,16 +39,23 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Neon|HUD", meta = (ClampMin = "0"))
 	float GoDisplaySeconds = 0.8f;
 
+	/** The closing-walls countdown appears this many seconds before the walls start. */
+	UPROPERTY(EditDefaultsOnly, Category = "Neon|HUD", meta = (ClampMin = "0"))
+	float CollapseWarningSeconds = 10.f;
+
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 	void BuildTree();
-	void UpdateScores(const ANeonGameState& GS, const ANeonPlayerState* LocalPS);
-	void UpdateCenter(const ANeonGameState& GS, const ANeonPlayerState* LocalPS, float DeltaTime);
-	void SetCenter(const FText& Big, const FText& Small, const FLinearColor& BigColor);
+	void UpdateStandings(const ANeonGameState& GS, const ANeonPlayerState* LocalPS);
+	void UpdateTopCenter(const ANeonGameState& GS);
+	void UpdateCenter(const ANeonGameState& GS, const ANeonPlayerState* LocalPS);
+	void UpdateResultsStandings(const ANeonGameState& GS, const ANeonPlayerState* LocalPS, bool bShow);
+	void SetCenter(const FText& Big, const FText& Small, const FLinearColor& BigColor, const FLinearColor& SmallColor);
 	void UpdatePowerupPanel(const ANeonGameState& GS);
 	const UNeonPowerupComponent* FindLocalPowerups() const;
+	const ANeonArena* FindArena() const;
 	FText NameForSlot(const ANeonGameState& GS, int32 SlotIndex) const;
 	FLinearColor ColorForSlot(const ANeonGameState& GS, int32 SlotIndex) const;
 
@@ -52,44 +65,36 @@ protected:
 	UFUNCTION()
 	void OnMainMenuClicked();
 
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> Score0;
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> Score1;
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> Score2;
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> Score3;
+	// Standings (top left): one row per slot.
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UWidget> StandingsPanel;
+	UPROPERTY(Transient) TArray<TObjectPtr<UWidget>> StandingRows;
+	UPROPERTY(Transient) TArray<TObjectPtr<UWidget>> StandingSwatches;
+	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> StandingNames;
+	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> StandingWins;
 
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> RoundText;
+	// Top center / right
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> RoundText;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> CollapseText;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> AliveText;
 
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> CenterBig;
-
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> CenterSmall;
-
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UWidget> ResultsButtons;
-
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UButton> RematchButton;
-
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UButton> MainMenuButton;
+	// Center
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> CenterBig;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> CenterSmall;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UWidget> ResultsPanel;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UVerticalBox> ResultsRows;
+	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> ResultsTexts;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UWidget> ResultsButtons;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> RematchButton;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> MainMenuButton;
 
 	// Powerup slot (bottom center)
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UWidget> PowerupPanel;
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> PowerupName;
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UTextBlock> PowerupHint;
-	UPROPERTY(meta = (BindWidgetOptional))
-	TObjectPtr<UProgressBar> PowerupBar;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UWidget> PowerupPanel;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> PowerupName;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> PowerupHint;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UProgressBar> PowerupBar;
 
 	ENeonMatchPhase LastPhase = ENeonMatchPhase::MainMenu;
 	float TimeInPhase = 0.f;
+	float Pulse = 0.f;
 	bool bBoundButtons = false;
 };

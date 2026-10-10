@@ -11,6 +11,7 @@ class UInputMappingContext;
 class UNeonHUDWidget;
 class UNeonMainMenuWidget;
 class ANeonGameState;
+class ANeonVehiclePawn;
 struct FInputActionValue;
 
 /**
@@ -22,6 +23,10 @@ struct FInputActionValue;
  * UI: owns the HUD and the main menu widgets (local player only) and switches them, the input mode and
  * the view target on match phase: MainMenu views the arena's fixed camera with the menu on top;
  * everything else views the vehicle's follow camera (DECISIONS.md D21) with the HUD.
+ *
+ * Spectating: once the local vehicle is eliminated the camera follows a surviving vehicle (A/D or
+ * Left/Right cycles through them) until the next countdown. With nobody left alive it falls back to
+ * the arena camera.
  *
  * Match requests (start, rematch, return to menu) go through server RPCs so the same code serves LAN
  * clients later; offline they execute immediately.
@@ -62,6 +67,17 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Neon|UI", meta = (ClampMin = "0"))
 	float ViewBlendTime = 0.6f;
 
+	/** Camera blend when the spectator camera jumps to another vehicle. */
+	UPROPERTY(EditDefaultsOnly, Category = "Neon|UI", meta = (ClampMin = "0"))
+	float SpectateBlendTime = 0.8f;
+
+	/** Vehicle the spectator camera follows, or null when viewing our own vehicle / the arena. */
+	UFUNCTION(BlueprintPure, Category = "Neon|Spectate")
+	ANeonVehiclePawn* GetSpectateTarget() const;
+
+	UFUNCTION(BlueprintPure, Category = "Neon|Spectate")
+	bool IsSpectating() const { return bSpectating; }
+
 	// ---- Requests from UI ----
 
 	UFUNCTION(BlueprintCallable, Category = "Neon|Match")
@@ -75,6 +91,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Neon|Match")
 	void RequestQuit();
+
+	/** Reload this map as a listen server (Milestone 6 first slice). */
+	UFUNCTION(BlueprintCallable, Category = "Neon|Lan")
+	void RequestHostLan();
+
+	/** Travel to a host at Address (IP or IP:port). */
+	UFUNCTION(BlueprintCallable, Category = "Neon|Lan")
+	void RequestJoinLan(const FString& Address);
 
 	virtual void PlayerTick(float DeltaTime) override;
 
@@ -101,6 +125,13 @@ protected:
 
 	void ApplyPhaseUI(ENeonMatchPhase Phase);
 	void ViewArena();
+	void ViewVehicle(ANeonVehiclePawn* Vehicle, float BlendTime);
+
+	void UpdateSpectating();
+	void StopSpectating(bool bViewOwnPawn);
+	/** Pick the next alive vehicle after the current target (Direction +1 / -1). Returns false if none is alive. */
+	bool CycleSpectateTarget(int32 Direction);
+	void CollectAliveVehicles(TArray<ANeonVehiclePawn*>& Out) const;
 
 	void OnSteer(const FInputActionValue& Value);
 	void OnSteerReleased(const FInputActionValue& Value);
@@ -118,4 +149,9 @@ protected:
 
 	TWeakObjectPtr<ANeonGameState> BoundGameState;
 	bool bUIBuilt = false;
+
+	TWeakObjectPtr<ANeonVehiclePawn> SpectateTarget;
+	bool bSpectating = false;
+	bool bSpectatingArena = false;
+	int32 LastSpectateSteerDir = 0;
 };

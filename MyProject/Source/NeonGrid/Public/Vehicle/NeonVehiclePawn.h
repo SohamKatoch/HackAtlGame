@@ -56,6 +56,9 @@ public:
 	UNeonPowerupComponent* GetPowerups() const { return Powerups; }
 	UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
+	/** Spectator / possession: turn this pawn's follow camera on or off. */
+	void SetFollowCameraActive(bool bActive);
+
 	virtual void Tick(float DeltaTime) override;
 
 	// ---- Follow camera (DECISIONS.md D21). Cosmetic, local-only; never read by the simulation. ----

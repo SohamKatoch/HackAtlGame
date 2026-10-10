@@ -2,6 +2,7 @@
 
 #include "Arena/NeonArena.h"
 #include "Blueprint/UserWidget.h"
+#include "Core/NeonGameInstance.h"
 #include "Core/NeonGameMode.h"
 #include "Core/NeonGameState.h"
 #include "Engine/GameViewportClient.h"
@@ -142,9 +143,10 @@ void ANeonPlayerController::OnPossess(APawn* InPawn)
 	CurrentInput = FNeonVehicleInput();
 
 	const ANeonGameState* GS = GetWorld() ? GetWorld()->GetGameState<ANeonGameState>() : nullptr;
-	if (InPawn && IsLocalController() && (!GS || GS->GetPhase() != ENeonMatchPhase::MainMenu))
+	if (ANeonVehiclePawn* Vehicle = Cast<ANeonVehiclePawn>(InPawn);
+		Vehicle && IsLocalController() && (!GS || GS->GetPhase() != ENeonMatchPhase::MainMenu))
 	{
-		SetViewTargetWithBlend(InPawn, ViewBlendTime);
+		ViewVehicle(Vehicle, ViewBlendTime);
 	}
 }
 
@@ -157,15 +159,146 @@ void ANeonPlayerController::PlayerTick(float DeltaTime)
 		BindGameState(); // game state may replicate after BeginPlay on clients
 	}
 
-	ANeonVehiclePawn* Vehicle = Cast<ANeonVehiclePawn>(GetPawn());
-	if (!Vehicle)
+	if (ANeonVehiclePawn* Vehicle = Cast<ANeonVehiclePawn>(GetPawn()))
 	{
+		if (UNeonMovementComponent* Movement = Vehicle->GetMovement())
+		{
+			Movement->SetInput(CurrentInput);
+		}
+	}
+
+	if (IsLocalController())
+	{
+		UpdateSpectating();
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Spectating
+// ---------------------------------------------------------------------------
+
+ANeonVehiclePawn* ANeonPlayerController::GetSpectateTarget() const
+{
+	return bSpectating ? SpectateTarget.Get() : nullptr;
+}
+
+namespace
+{
+	bool IsVehicleAlive(const ANeonVehiclePawn* V)
+	{
+		return IsValid(V) && V->GetMovement() && V->GetMovement()->IsAlive();
+	}
+}
+
+void ANeonPlayerController::CollectAliveVehicles(TArray<ANeonVehiclePawn*>& Out) const
+{
+	Out.Reset();
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<ANeonVehiclePawn> It(World); It; ++It)
+		{
+			if (*It != GetPawn() && IsVehicleAlive(*It))
+			{
+				Out.Add(*It);
+			}
+		}
+	}
+	// Stable order so A/D cycles predictably.
+	Out.Sort([](const ANeonVehiclePawn& A, const ANeonVehiclePawn& B) { return A.GetPlayerSlot() < B.GetPlayerSlot(); });
+}
+
+bool ANeonPlayerController::CycleSpectateTarget(int32 Direction)
+{
+	TArray<ANeonVehiclePawn*> Alive;
+	CollectAliveVehicles(Alive);
+	if (Alive.Num() == 0)
+	{
+		SpectateTarget = nullptr;
+		return false;
+	}
+
+	int32 Index = Alive.IndexOfByKey(SpectateTarget.Get());
+	if (Index == INDEX_NONE)
+	{
+		Index = Direction >= 0 ? 0 : Alive.Num() - 1;
+	}
+	else
+	{
+		Index = (Index + (Direction >= 0 ? 1 : -1) + Alive.Num()) % Alive.Num();
+	}
+
+	ANeonVehiclePawn* Next = Alive[Index];
+	if (Next != SpectateTarget.Get() || GetViewTarget() != Next)
+	{
+		SpectateTarget = Next;
+		ViewVehicle(Next, SpectateBlendTime);
+		bSpectatingArena = false;
+	}
+	return true;
+}
+
+void ANeonPlayerController::StopSpectating(bool bViewOwnPawn)
+{
+	const bool bWas = bSpectating;
+	bSpectating = false;
+	bSpectatingArena = false;
+	SpectateTarget = nullptr;
+	LastSpectateSteerDir = 0;
+	if (bWas && bViewOwnPawn)
+	{
+		if (ANeonVehiclePawn* Own = Cast<ANeonVehiclePawn>(GetPawn()))
+		{
+			ViewVehicle(Own, ViewBlendTime);
+		}
+	}
+}
+
+void ANeonPlayerController::UpdateSpectating()
+{
+	const ANeonGameState* GS = BoundGameState.Get();
+	const ENeonMatchPhase Phase = GS ? GS->GetPhase() : ENeonMatchPhase::MainMenu;
+	const bool bRoundPhase = Phase == ENeonMatchPhase::Playing || Phase == ENeonMatchPhase::RoundResults;
+	if (!bRoundPhase)
+	{
+		StopSpectating(false);
 		return;
 	}
 
-	if (UNeonMovementComponent* Movement = Vehicle->GetMovement())
+	ANeonVehiclePawn* Own = Cast<ANeonVehiclePawn>(GetPawn());
+	if (IsVehicleAlive(Own))
 	{
-		Movement->SetInput(CurrentInput);
+		StopSpectating(true);
+		return;
+	}
+
+	// Our vehicle is out. Follow somebody who is still driving.
+	if (!bSpectating)
+	{
+		bSpectating = true;
+		SpectateTarget = nullptr;
+		if (Own)
+		{
+			Own->SetFollowCameraActive(false);
+		}
+		// Ignore a steer key that was already held when we died; wait for a fresh press.
+		LastSpectateSteerDir = CurrentInput.Steering > 0.5f ? 1 : (CurrentInput.Steering < -0.5f ? -1 : 0);
+	}
+
+	const int32 SteerDir = CurrentInput.Steering > 0.5f ? 1 : (CurrentInput.Steering < -0.5f ? -1 : 0);
+	const bool bPressed = SteerDir != 0 && SteerDir != LastSpectateSteerDir;
+	LastSpectateSteerDir = SteerDir;
+
+	bool bHaveTarget = IsVehicleAlive(SpectateTarget.Get());
+	if (bPressed || !bHaveTarget)
+	{
+		bHaveTarget = CycleSpectateTarget(bPressed ? SteerDir : 1);
+	}
+
+	if (!bHaveTarget && !bSpectatingArena)
+	{
+		// Nobody left to follow (simultaneous wipe-out): show the whole arena.
+		bSpectatingArena = true;
+		ViewArena();
 	}
 }
 
@@ -220,6 +353,22 @@ void ANeonPlayerController::RequestReturnToMainMenu()
 void ANeonPlayerController::RequestQuit()
 {
 	UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, false);
+}
+
+void ANeonPlayerController::RequestHostLan()
+{
+	if (UNeonGameInstance* GI = GetGameInstance<UNeonGameInstance>())
+	{
+		GI->HostListen();
+	}
+}
+
+void ANeonPlayerController::RequestJoinLan(const FString& Address)
+{
+	if (UNeonGameInstance* GI = GetGameInstance<UNeonGameInstance>())
+	{
+		GI->JoinListen(Address);
+	}
 }
 
 void ANeonPlayerController::ServerStartSoloMatch_Implementation(const FNeonMatchSettings& Settings)
@@ -303,6 +452,16 @@ void ANeonPlayerController::HandlePhaseChanged(ENeonMatchPhase NewPhase)
 	ApplyPhaseUI(NewPhase);
 }
 
+void ANeonPlayerController::ViewVehicle(ANeonVehiclePawn* Vehicle, float BlendTime)
+{
+	if (!Vehicle)
+	{
+		return;
+	}
+	Vehicle->SetFollowCameraActive(true);
+	SetViewTargetWithBlend(Vehicle, BlendTime, VTBlend_Cubic);
+}
+
 void ANeonPlayerController::ViewArena()
 {
 	if (UWorld* World = GetWorld())
@@ -363,9 +522,15 @@ void ANeonPlayerController::ApplyPhaseUI(ENeonMatchPhase Phase)
 	{
 		SetInputMode(FInputModeGameOnly());
 		SetShowMouseCursor(false);
-		if (APawn* P = GetPawn())
+		// Countdown always returns the camera to our own (respawned) vehicle. During Playing /
+		// RoundResults a dead player keeps the spectator camera (UpdateSpectating owns the view then).
+		if (Phase == ENeonMatchPhase::Countdown)
 		{
-			SetViewTargetWithBlend(P, ViewBlendTime);
+			StopSpectating(false);
+		}
+		if (ANeonVehiclePawn* Own = Cast<ANeonVehiclePawn>(GetPawn()); Own && !bSpectating)
+		{
+			ViewVehicle(Own, ViewBlendTime);
 		}
 	}
 }

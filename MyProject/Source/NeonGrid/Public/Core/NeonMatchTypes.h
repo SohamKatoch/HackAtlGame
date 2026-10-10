@@ -44,6 +44,10 @@ struct NEONGRID_API FNeonMatchSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neon|Match")
 	bool bPowerupsEnabled = true;
 
+	/** The walls close in during each round (DECISIONS.md D27). Off keeps the full arena all round. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neon|Match")
+	bool bArenaCollapse = true;
+
 	/** The only arena that exists. Kept as data so the menu can list more later. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neon|Match")
 	FName ArenaId = TEXT("TheGrid");

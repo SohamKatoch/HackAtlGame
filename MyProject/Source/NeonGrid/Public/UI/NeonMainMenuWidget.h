@@ -8,16 +8,16 @@
 class UButton;
 class UTextBlock;
 class UWidgetSwitcher;
+class UEditableTextBox;
 
 /**
- * Main menu and Solo menu (guide sections 60, 61). Two pages in one widget:
+ * Main menu, Solo menu, and LAN host/join (guide sections 60, 61). Three pages in one widget:
  *
  *   NEON GRID: SOLO / LAN PLAY / OPTIONS / CREDITS / QUIT
- *   SOLO: AI PLAYERS 1 2 3 / DIFFICULTY EASY NORMAL HARD EXPERT / ARENA THE GRID / START / BACK
+ *   SOLO: AI, difficulty, powerups, closing walls, START
+ *   LAN: HOST (listen on this PC) / JOIN (IP) / BACK
  *
- * LAN PLAY, OPTIONS and CREDITS are shown disabled until they exist (guide section 63: do not expose
- * what is not implemented). Settings are kept in UNeonGameInstance so the choice persists between
- * matches. START asks the player controller to start the match (server RPC on LAN later).
+ * OPTIONS and CREDITS stay disabled until they exist. START / HOST go through the player controller.
  *
  * The tree is built in code when no Blueprint subclass provides one; members are BindWidgetOptional.
  */
@@ -56,10 +56,17 @@ protected:
 	UFUNCTION() void OnExpertClicked();
 	UFUNCTION() void OnPowerupsOnClicked();
 	UFUNCTION() void OnPowerupsOffClicked();
+	UFUNCTION() void OnCollapseOnClicked();
+	UFUNCTION() void OnCollapseOffClicked();
+	UFUNCTION() void OnLanClicked();
+	UFUNCTION() void OnLanHostClicked();
+	UFUNCTION() void OnLanJoinClicked();
+	UFUNCTION() void OnLanBackClicked();
 
 	void SetAICount(int32 Count);
 	void SetDifficulty(ENeonAIDifficulty Level);
 	void SetPowerupsEnabled(bool bEnabled);
+	void SetCollapseEnabled(bool bEnabled);
 
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UWidgetSwitcher> Pages;
 
@@ -80,9 +87,18 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> ExpertButton;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> PowerupsOnButton;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> PowerupsOffButton;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> CollapseOnButton;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> CollapseOffButton;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> ArenaText;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> StartButton;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> BackButton;
+
+	// LAN page
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> LanHostButton;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> LanJoinButton;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> LanBackButton;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UEditableTextBox> LanAddressBox;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> LanStatusText;
 
 	FNeonMatchSettings Settings;
 	bool bBoundButtons = false;

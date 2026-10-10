@@ -18,4 +18,14 @@ class NEONGRID_API UNeonGameInstance : public UGameInstance
 public:
 	UPROPERTY(BlueprintReadWrite, Category = "Neon|Match")
 	FNeonMatchSettings MatchSettings;
+
+	/** Last address typed in the LAN join box. */
+	UPROPERTY(BlueprintReadWrite, Category = "Neon|Lan")
+	FString LastJoinAddress = TEXT("127.0.0.1");
+
+	/** Reload L_TheGrid as a listen server so others can join. */
+	void HostListen();
+
+	/** Travel this client to a host at Address (IP or IP:port). */
+	void JoinListen(const FString& Address);
 };

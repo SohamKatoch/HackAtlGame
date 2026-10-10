@@ -16,6 +16,15 @@ float ANeonGameState::GetPhaseTimeRemaining() const
 	return FMath::Max(PhaseEndServerTime - GetServerWorldTimeSeconds(), 0.f);
 }
 
+float ANeonGameState::GetRoundElapsed() const
+{
+	if (Phase != ENeonMatchPhase::Playing || RoundStartServerTime <= 0.f)
+	{
+		return -1.f;
+	}
+	return FMath::Max(GetServerWorldTimeSeconds() - RoundStartServerTime, 0.f);
+}
+
 ANeonPlayerState* ANeonGameState::FindPlayerStateBySlot(int32 Slot) const
 {
 	for (APlayerState* PS : PlayerArray)
@@ -50,4 +59,6 @@ void ANeonGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(ANeonGameState, PhaseEndServerTime);
 	DOREPLIFETIME(ANeonGameState, RoundWinnerSlot);
 	DOREPLIFETIME(ANeonGameState, MatchWinnerSlot);
+	DOREPLIFETIME(ANeonGameState, RoundStartServerTime);
+	DOREPLIFETIME(ANeonGameState, bArenaCollapseEnabled);
 }

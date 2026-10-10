@@ -145,7 +145,10 @@ public:
 	const UNeonVehicleConfig* GetConfig() const;
 
 	bool HasArenaBounds() const { return bHasArenaBounds; }
-	const FBox2D& GetArenaBounds() const { return ArenaBounds; }
+	/** Rectangle the vehicle must stay inside right now. Live from the arena when one is set (it shrinks during the collapse, D27). */
+	FBox2D GetArenaBounds() const;
+	/** Rectangle SecondsAhead from now, for AI prediction. */
+	FBox2D GetArenaBoundsAt(float SecondsAhead) const;
 
 	UPROPERTY(BlueprintAssignable, Category = "Neon|Movement")
 	FNeonVehicleEliminatedSignature OnEliminated;

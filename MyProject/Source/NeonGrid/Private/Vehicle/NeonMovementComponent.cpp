@@ -91,9 +91,27 @@ void UNeonMovementComponent::SetArena(const ANeonArena* InArena)
 	HeightSource = InArena;
 	if (InArena)
 	{
-		SetArenaBounds(InArena->GetBounds());
+		SetArenaBounds(InArena->GetFullBounds());
 		FloorOffset = InArena->VehicleSpawnHeight;
 	}
+}
+
+FBox2D UNeonMovementComponent::GetArenaBounds() const
+{
+	if (const ANeonArena* Arena = HeightSource.Get())
+	{
+		return Arena->GetBounds();
+	}
+	return ArenaBounds;
+}
+
+FBox2D UNeonMovementComponent::GetArenaBoundsAt(float SecondsAhead) const
+{
+	if (const ANeonArena* Arena = HeightSource.Get())
+	{
+		return Arena->GetBoundsAt(SecondsAhead);
+	}
+	return ArenaBounds;
 }
 
 void UNeonMovementComponent::ResetSimulation(const FVector& WorldLocation, float HeadingDegrees)
@@ -240,12 +258,13 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 	const FVector2D Direction(FMath::Cos(HeadingRad), FMath::Sin(HeadingRad));
 	FVector2D NewPosition = SimPosition + Direction * CurrentSpeed * Dt;
 
-	// Boundary.
+	// Boundary. Read live: the rectangle shrinks during the collapse (D27).
 	if (bHasArenaBounds)
 	{
 		const float R = C->CollisionRadius;
-		const FVector2D InnerMin = ArenaBounds.Min + FVector2D(R, R);
-		const FVector2D InnerMax = ArenaBounds.Max - FVector2D(R, R);
+		const FBox2D Bounds = GetArenaBounds();
+		const FVector2D InnerMin = Bounds.Min + FVector2D(R, R);
+		const FVector2D InnerMax = Bounds.Max - FVector2D(R, R);
 
 		const bool bInside =
 			NewPosition.X >= InnerMin.X && NewPosition.X <= InnerMax.X &&

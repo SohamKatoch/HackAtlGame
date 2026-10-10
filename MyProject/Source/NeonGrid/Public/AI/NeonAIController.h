@@ -72,7 +72,7 @@ protected:
 	virtual void PostInitializeComponents() override;
 	virtual void InitPlayerState() override;
 
-	enum class EState : uint8 { Cruise, Turn, Avoid, Chase, Doomed };
+	enum class EState : uint8 { Cruise, Turn, Avoid, Chase, Collect, Doomed };
 
 	/** Steer at Steering until the heading has moved TurnAngle degrees from where the plan started, then straight. */
 	struct FPlan

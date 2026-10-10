@@ -18,7 +18,7 @@ Milestones 1–4, the offline round/match system (most of Milestone 5), the step
 - [x] `UNeonMovementComponent`: 60 Hz fixed step, heading/speed integration, min-radius clamp, boundary elimination, render interpolation, `SetFrozen` for countdown/results
 - [x] `UNeonLeanComponent`: cosmetic roll on the visual root only
 - [x] `ANeonVehiclePawn`: scene root + lean root + two engine-cube placeholders, color tint, follow camera (D21)
-- [x] `ANeonArena`: The Grid bounds (14000 × 9000, D23), 4 inward-facing spawns, fixed whole-arena camera (menu backdrop), stepped-pyramid procedural terrain with plateau lips (D25), walls, dev light
+- [x] `ANeonArena`: The Grid bounds (24000 × 16000, D27), closing walls, 4 inward-facing spawns, fixed whole-arena camera (menu backdrop), stepped-pyramid procedural terrain with plateau lips (D25), walls, dev light
 - [x] `ANeonPlayerController`: Enhanced Input built in code (A/D, arrows, left stick; Esc/gamepad Menu; Space / RT / gamepad A activates a powerup), per-frame input snapshot
 - [x] Config: split-screen off, default map `/Game/NeonGrid/Maps/L_TheGrid`, default mode `NeonGameMode`, game instance `NeonGameInstance`
 - [x] Compile: `NeonGridEditor` builds clean with VS 2026 Community (MSVC 14.51). UBT warns that 14.51 is newer than its preferred 14.50.
@@ -90,10 +90,10 @@ Nothing mid-edit. Everything above compiles and the headless tests pass.
 
 ## NEXT
 
-- **Play it.** Open the project, press Play: menu → SOLO → START. Check camera feel (distance / height / pitch / lag on the pawn), vehicle speed and turn, lean direction, terrain readability from the low camera, trail readability, HUD legibility, pickup visibility, AI difficulty. Nothing has been seen on screen yet.
-- Powerup balance pass from that play test (spawn cadence, durations, EMP range, pickup size).
+- **Play it** on this compile: SOLO → START. Confirm the larger Grid, walls closing from 8 s, slower cruise, and the death camera locking onto a living bike.
+- LAN first slice (D28): HOST on one PC, JOIN with that IPv4 on another. Session search, ready, and trail replication are still open.
+- Powerup balance pass from a human play test.
 - Tune Hard / Expert from a human baseline.
-- Milestone 6 (LAN) per DEVELOPMENT_PLAN. The powerup component, spawner and pickup already have replication flags on the state that clients need to see; the activation RPC and pickup replication are not written.
 
 ## BACKLOG
 

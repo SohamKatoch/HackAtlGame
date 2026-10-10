@@ -81,6 +81,10 @@ void ANeonGameMode::StartPlay()
 	{
 		Settings.bPowerupsEnabled = false;
 	}
+	if (FParse::Param(FCommandLine::Get(), TEXT("NeonNoCollapse")))
+	{
+		Settings.bArenaCollapse = false;
+	}
 #endif
 
 	if (bAutoStart)
@@ -464,6 +468,7 @@ void ANeonGameMode::StartSoloMatch(const FNeonMatchSettings& Settings)
 	ClearTimers();
 	DestroyAllVehicles();
 	GS->SetScoreLimit(FMath::Max(Settings.ScoreLimit, 1));
+	GS->SetArenaCollapseEnabled(Settings.bArenaCollapse);
 	ResetScores();
 	if (PowerupSpawner)
 	{
@@ -484,9 +489,9 @@ void ANeonGameMode::StartSoloMatch(const FNeonMatchSettings& Settings)
 	const int32 MaxAI = FMath::Clamp(4 - CountHumans(), 0, 3);
 	SpawnAIPlayers(FMath::Clamp(Settings.AIPlayerCount, 0, MaxAI), Settings.AIDifficulty);
 
-	UE_LOG(LogNeonGrid, Log, TEXT("Match started: %d humans, %d AI (%s), first to %d, powerups %s."),
+	UE_LOG(LogNeonGrid, Log, TEXT("Match started: %d humans, %d AI (%s), first to %d, powerups %s, collapse %s."),
 		CountHumans(), AIControllers.Num(), *UEnum::GetValueAsString(Settings.AIDifficulty), GS->GetScoreLimit(),
-		Settings.bPowerupsEnabled ? TEXT("on") : TEXT("off"));
+		Settings.bPowerupsEnabled ? TEXT("on") : TEXT("off"), Settings.bArenaCollapse ? TEXT("on") : TEXT("off"));
 
 	BeginCountdown();
 }
@@ -562,6 +567,7 @@ void ANeonGameMode::BeginPlaying()
 	{
 		PowerupSpawner->SetSpawning(true);
 	}
+	GS->MarkRoundStart();
 	GS->SetPhase(ENeonMatchPhase::Playing, 0.f);
 	UE_LOG(LogNeonGrid, Log, TEXT("Round %d: GO."), GS->GetRoundNumber());
 }

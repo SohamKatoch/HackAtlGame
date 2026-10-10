@@ -3,6 +3,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Core/NeonGameState.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -64,7 +65,9 @@ namespace
 
 ANeonArena::ANeonArena()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// Tick only moves the cosmetic walls while the collapse runs.
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.TickGroup = TG_PostPhysics;
 
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	SetRootComponent(Root);
@@ -138,11 +141,122 @@ ANeonArena* ANeonArena::FindArena(const UWorld* World)
 // Gameplay queries
 // ---------------------------------------------------------------------------
 
-FBox2D ANeonArena::GetBounds() const
+FBox2D ANeonArena::GetFullBounds() const
 {
 	const FVector Center = GetActorLocation();
 	const FVector2D C(Center.X, Center.Y);
 	return FBox2D(C - HalfExtents, C + HalfExtents);
+}
+
+FBox2D ANeonArena::GetBounds() const
+{
+	const FVector Center = GetActorLocation();
+	const FVector2D C(Center.X, Center.Y);
+	const FVector2D Half = HalfExtentsAt(RoundElapsed);
+	return FBox2D(C - Half, C + Half);
+}
+
+FBox2D ANeonArena::GetBoundsAt(float SecondsAhead) const
+{
+	const FVector Center = GetActorLocation();
+	const FVector2D C(Center.X, Center.Y);
+	const FVector2D Half = HalfExtentsAt(RoundElapsed < 0.f ? RoundElapsed : RoundElapsed + FMath::Max(SecondsAhead, 0.f));
+	return FBox2D(C - Half, C + Half);
+}
+
+// ---------------------------------------------------------------------------
+// Collapse (D27)
+// ---------------------------------------------------------------------------
+
+float ANeonArena::CollapseProgressAt(float Elapsed) const
+{
+	if (!IsCollapseActive() || Elapsed < 0.f)
+	{
+		return 0.f;
+	}
+	return FMath::Clamp((Elapsed - CollapseStartDelay) / FMath::Max(CollapseDuration, 1.f), 0.f, 1.f);
+}
+
+FVector2D ANeonArena::HalfExtentsAt(float Elapsed) const
+{
+	const float T = CollapseProgressAt(Elapsed);
+	if (T <= 0.f)
+	{
+		return HalfExtents;
+	}
+	const FVector2D Min(FMath::Min(MinHalfExtents.X, HalfExtents.X), FMath::Min(MinHalfExtents.Y, HalfExtents.Y));
+	return FMath::Lerp(HalfExtents, Min, T);
+}
+
+void ANeonArena::SetRoundElapsed(float Seconds)
+{
+	RoundElapsed = Seconds;
+}
+
+float ANeonArena::GetSecondsUntilCollapse() const
+{
+	if (!IsCollapseActive() || RoundElapsed < 0.f)
+	{
+		return -1.f;
+	}
+	return FMath::Max(CollapseStartDelay - RoundElapsed, 0.f);
+}
+
+bool ANeonArena::IsCollapsing() const
+{
+	const float T = GetCollapseProgress();
+	return T > 0.f && T < 1.f;
+}
+
+void ANeonArena::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	// Round timing comes from the replicated game state, so server and clients agree on the wall.
+	// Results phases keep the last value so the walls stay where the round ended.
+	if (const ANeonGameState* GS = GetWorld() ? GetWorld()->GetGameState<ANeonGameState>() : nullptr)
+	{
+		bCollapseActiveForMatch = GS->IsArenaCollapseEnabled();
+		switch (GS->GetPhase())
+		{
+		case ENeonMatchPhase::Playing:
+			RoundElapsed = GS->GetRoundElapsed();
+			break;
+		case ENeonMatchPhase::MainMenu:
+		case ENeonMatchPhase::Countdown:
+			RoundElapsed = -1.f;
+			break;
+		default:
+			break;
+		}
+	}
+
+	const FVector2D Half = HalfExtentsAt(RoundElapsed);
+	if (!Half.Equals(LastWallHalf, 0.5f))
+	{
+		LayoutWalls(Half);
+	}
+
+	// Wall tint: pulse toward the collapse color while the walls move; steady accent otherwise.
+	if (IsCollapsing())
+	{
+		const float Pulse = 0.55f + 0.45f * FMath::Sin(GetWorld()->GetTimeSeconds() * 6.f);
+		TintWalls(FMath::Lerp(WallColor, CollapseWallColor, Pulse));
+	}
+	else if (GetCollapseProgress() >= 1.f)
+	{
+		TintWalls(CollapseWallColor);
+	}
+	else if (RoundElapsed >= 0.f && GetSecondsUntilCollapse() <= 5.f && GetSecondsUntilCollapse() > 0.f)
+	{
+		// Warning flicker in the last seconds before the walls start.
+		const float Pulse = 0.5f + 0.5f * FMath::Sin(GetWorld()->GetTimeSeconds() * 10.f);
+		TintWalls(FMath::Lerp(WallColor, CollapseWallColor, 0.6f * Pulse));
+	}
+	else
+	{
+		TintWalls(WallColor);
+	}
 }
 
 FTransform ANeonArena::GetSpawnTransform(int32 PlayerIndex) const
@@ -316,41 +430,70 @@ void ANeonArena::BuildTerrainMesh()
 
 void ANeonArena::LayoutCosmetics()
 {
-	// Engine cube is 100 cm.
-	const float HalfWallZ = WallHeight * 0.5f;
-	const float LongX = (HalfExtents.X * 2.f + WallThickness) / 100.f;
-	const float LongY = (HalfExtents.Y * 2.f + WallThickness) / 100.f;
-	const float Thick = WallThickness / 100.f;
-	const float Tall = WallHeight / 100.f;
-
-	if (WallNorth)
+	WallMIDs.Reset();
+	for (UStaticMeshComponent* Wall : { WallNorth.Get(), WallSouth.Get(), WallEast.Get(), WallWest.Get() })
 	{
-		WallNorth->SetRelativeLocation(FVector(0.f, HalfExtents.Y + WallThickness * 0.5f, HalfWallZ));
-		WallNorth->SetRelativeScale3D(FVector(LongX, Thick, Tall));
-		TintMesh(WallNorth, WallColor);
+		if (Wall && Wall->GetMaterial(0))
+		{
+			if (UMaterialInstanceDynamic* MID = Wall->CreateAndSetMaterialInstanceDynamic(0))
+			{
+				WallMIDs.Add(MID);
+			}
+		}
 	}
-	if (WallSouth)
-	{
-		WallSouth->SetRelativeLocation(FVector(0.f, -HalfExtents.Y - WallThickness * 0.5f, HalfWallZ));
-		WallSouth->SetRelativeScale3D(FVector(LongX, Thick, Tall));
-		TintMesh(WallSouth, WallColor);
-	}
-	if (WallEast)
-	{
-		WallEast->SetRelativeLocation(FVector(HalfExtents.X + WallThickness * 0.5f, 0.f, HalfWallZ));
-		WallEast->SetRelativeScale3D(FVector(Thick, LongY, Tall));
-		TintMesh(WallEast, WallColor);
-	}
-	if (WallWest)
-	{
-		WallWest->SetRelativeLocation(FVector(-HalfExtents.X - WallThickness * 0.5f, 0.f, HalfWallZ));
-		WallWest->SetRelativeScale3D(FVector(Thick, LongY, Tall));
-		TintMesh(WallWest, WallColor);
-	}
+	TintWalls(WallColor);
+	LayoutWalls(HalfExtentsAt(RoundElapsed));
 
 	if (DevLight)
 	{
 		DevLight->SetVisibility(bEnableDevLight);
+	}
+}
+
+void ANeonArena::LayoutWalls(const FVector2D& Half)
+{
+	LastWallHalf = Half;
+
+	// Engine cube is 100 cm. The walls stand on Z = 0 and are tall enough to clear every tier, so a wall
+	// that has moved onto the pyramid never floats above the raised floor.
+	const float TotalTierRise = FMath::Max(TierCount, 0) * FMath::Max(TierHeight, 0.f);
+	const float Height = WallHeight + TotalTierRise;
+	const float HalfWallZ = Height * 0.5f;
+	const float LongX = (Half.X * 2.f + WallThickness) / 100.f;
+	const float LongY = (Half.Y * 2.f + WallThickness) / 100.f;
+	const float Thick = WallThickness / 100.f;
+	const float Tall = Height / 100.f;
+
+	if (WallNorth)
+	{
+		WallNorth->SetRelativeLocation(FVector(0.f, Half.Y + WallThickness * 0.5f, HalfWallZ));
+		WallNorth->SetRelativeScale3D(FVector(LongX, Thick, Tall));
+	}
+	if (WallSouth)
+	{
+		WallSouth->SetRelativeLocation(FVector(0.f, -Half.Y - WallThickness * 0.5f, HalfWallZ));
+		WallSouth->SetRelativeScale3D(FVector(LongX, Thick, Tall));
+	}
+	if (WallEast)
+	{
+		WallEast->SetRelativeLocation(FVector(Half.X + WallThickness * 0.5f, 0.f, HalfWallZ));
+		WallEast->SetRelativeScale3D(FVector(Thick, LongY, Tall));
+	}
+	if (WallWest)
+	{
+		WallWest->SetRelativeLocation(FVector(-Half.X - WallThickness * 0.5f, 0.f, HalfWallZ));
+		WallWest->SetRelativeScale3D(FVector(Thick, LongY, Tall));
+	}
+}
+
+void ANeonArena::TintWalls(const FLinearColor& Color)
+{
+	for (UMaterialInstanceDynamic* MID : WallMIDs)
+	{
+		if (MID)
+		{
+			MID->SetVectorParameterValue(TEXT("Color"), Color);
+		}
 	}
 }
 

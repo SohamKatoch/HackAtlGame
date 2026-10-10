@@ -43,6 +43,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Neon|Match")
 	int32 GetMatchWinnerSlot() const { return MatchWinnerSlot; }
 
+	/** Seconds since GO this round while Playing; negative in any other phase. Drives the arena collapse (D27). */
+	UFUNCTION(BlueprintPure, Category = "Neon|Match")
+	float GetRoundElapsed() const;
+
+	UFUNCTION(BlueprintPure, Category = "Neon|Match")
+	bool IsArenaCollapseEnabled() const { return bArenaCollapseEnabled; }
+
 	UFUNCTION(BlueprintPure, Category = "Neon|Match")
 	ANeonPlayerState* FindPlayerStateBySlot(int32 Slot) const;
 
@@ -57,6 +64,9 @@ public:
 	void SetScoreLimit(int32 InLimit) { ScoreLimit = InLimit; }
 	void SetRoundWinnerSlot(int32 InSlot) { RoundWinnerSlot = InSlot; }
 	void SetMatchWinnerSlot(int32 InSlot) { MatchWinnerSlot = InSlot; }
+	/** Called at GO. */
+	void MarkRoundStart() { RoundStartServerTime = GetServerWorldTimeSeconds(); }
+	void SetArenaCollapseEnabled(bool bEnabled) { bArenaCollapseEnabled = bEnabled; }
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -82,4 +92,11 @@ protected:
 
 	UPROPERTY(Replicated)
 	int32 MatchWinnerSlot = -1;
+
+	/** Server world time of the current round's GO. <= 0 before the first round. */
+	UPROPERTY(Replicated)
+	float RoundStartServerTime = 0.f;
+
+	UPROPERTY(Replicated)
+	bool bArenaCollapseEnabled = true;
 };

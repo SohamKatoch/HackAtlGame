@@ -19,13 +19,16 @@ class NEONGRID_API UNeonVehicleConfig : public UPrimaryDataAsset
 public:
 	// ---- Speed ----
 
-	/** Cruise speed in cm/s. MVP speed is constant at this value unless a powerup overrides it. */
+	/**
+	 * Cruise speed in cm/s. MVP speed is constant at this value unless a powerup overrides it.
+	 * Was 2200, then 1700; playtest still ended rounds in a few seconds, so cruise is 1400 (D27).
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Speed", meta = (ClampMin = "1"))
-	float BaseSpeed = 2200.f;
+	float BaseSpeed = 1400.f;
 
 	/** Speed floor in cm/s. Equal to cruise in the MVP (no acceleration model yet). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Speed", meta = (ClampMin = "1"))
-	float MinSpeed = 2200.f;
+	float MinSpeed = 1400.f;
 
 	// ---- Steering ----
 

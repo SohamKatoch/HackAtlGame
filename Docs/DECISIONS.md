@@ -236,3 +236,19 @@ The guide names six powerups (D6), one slot (D7), manual activation, and EMP as 
 - **AI**: an empty slot adds a `CollectWeight` alignment term toward the nearest pickup in `CollectRange`; a held powerup is used when the moment fits its type (defensive ones under threat, speed ones on an open straight, EMP with a target in range), taken with probability scaling on `PowerupSkill`; low-skill AI also wastes powerups at random.
 - **Powerups can be turned off** in the Solo menu (`FNeonMatchSettings::bPowerupsEnabled`) for a classic match.
 - The debug Boost on Left Shift is gone; Space / RT / gamepad A is the activate key.
+
+## D27 — Bigger Grid, slower bikes, closing walls, death camera
+
+**Status:** Accepted (playtest: map too small / not dynamic, rounds too fast, camera stuck on the wreck)
+
+- The Grid is **24000 × 16000** (`HalfExtents` 12000 × 8000). At 1400 cm/s the long axis is about 17 s.
+- Cruise / min speed is **1400 cm/s** (was 2200, then 1700). Turn rate stays 180°/s so the bike still corners.
+- **Closing walls** are on by default. After 8 s of play the rectangle interpolates to 8000 × 5200 over 40 s. `GetBounds()` is live; a vehicle caught by the wall dies (`Boundary`). Solo menu can turn this off. Walls pulse orange while moving.
+- **Spectator camera:** on death the local follow camera is disabled and the view blends onto a living opponent. A / D (or left / right) cycles survivors. With nobody left, the arena camera. HUD: "WATCHING P#".
+- AI look-ahead and loop aversion were scaled with the slower speed. Easy now uses a territory term so it boxes itself less.
+
+## D28 — LAN first slice is listen + IP, not discovery
+
+**Status:** Accepted (Milestone 6 start)
+
+The LAN menu Host reloads `L_TheGrid` with `?listen`. Join travels to a typed IPv4 (optional `:port`, default 7777). Session search, ready-up, and color pick land later. Same compiled project on every machine; Windows Firewall must allow the editor / packaged exe on a private network.

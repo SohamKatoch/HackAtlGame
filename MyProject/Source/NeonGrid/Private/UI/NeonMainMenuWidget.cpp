@@ -10,6 +10,7 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Components/EditableTextBox.h"
 #include "Components/WidgetSwitcher.h"
 #include "Core/NeonGameInstance.h"
 #include "Core/NeonPlayerController.h"
@@ -73,26 +74,35 @@ void UNeonMainMenuWidget::BuildTree()
 	UCanvasPanel* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("Root"));
 	WidgetTree->RootWidget = Canvas;
 
-	// Panel on the left third of the screen, leaving the arena visible behind.
-	UBorder* Panel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
-	Panel->SetBrushColor(NeonUI::Panel);
-	Panel->SetPadding(FMargin(60.f, 50.f));
+	// Floating rounded panel on the left third of the screen, leaving the arena visible behind.
+	UBorder* Panel = NeonUI::MakePanel(WidgetTree, FMargin(56.f, 44.f), 16.f);
 	Panel->SetHorizontalAlignment(HAlign_Fill);
 	Panel->SetVerticalAlignment(VAlign_Center);
 	{
 		UCanvasPanelSlot* S = Canvas->AddChildToCanvas(Panel);
 		S->SetAnchors(FAnchors(0.f, 0.f, 0.f, 1.f));
 		S->SetAlignment(FVector2D(0.f, 0.f));
-		S->SetOffsets(FMargin(0.f, 0.f, 620.f, 0.f)); // left, top, width, bottom
+		S->SetOffsets(FMargin(40.f, 40.f, 600.f, 40.f)); // left, top, width, bottom
 	}
 
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Panel->AddChild(Column);
 
 	AddRow(Column, NeonUI::MakeText(WidgetTree, LOCTEXT("Title", "NEON GRID"), 72, NeonUI::Accent), 0.f);
+	AddRow(Column, NeonUI::MakeText(WidgetTree, LOCTEXT("Subtitle", "LIGHT CYCLE ARENA"), 16, NeonUI::Dim), 2.f);
 
 	Pages = WidgetTree->ConstructWidget<UWidgetSwitcher>(UWidgetSwitcher::StaticClass());
-	AddRow(Column, Pages, 40.f);
+	AddRow(Column, Pages, 36.f);
+
+	// Version footer pinned to the bottom-left corner of the screen.
+	{
+		UTextBlock* Version = NeonUI::MakeText(WidgetTree, LOCTEXT("Version", "NEON GRID  pre-alpha  \u00B7  Milestone 6"), 13, NeonUI::Dim, false);
+		UCanvasPanelSlot* S = Canvas->AddChildToCanvas(Version);
+		S->SetAnchors(FAnchors(0.f, 1.f));
+		S->SetAlignment(FVector2D(0.f, 1.f));
+		S->SetPosition(FVector2D(44.f, -14.f));
+		S->SetAutoSize(true);
+	}
 
 	// ---- Page 0: main ----
 	UVerticalBox* Main = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
@@ -107,9 +117,7 @@ void UNeonMainMenuWidget::BuildTree()
 
 	SoloButton = MainButton(LOCTEXT("Solo", "SOLO"));
 
-	UTextBlock* LanLabel = nullptr;
-	LanButton = MainButton(LOCTEXT("Lan", "LAN PLAY"), &LanLabel);
-	NeonUI::SetButtonEnabled(LanButton, LanLabel, false);
+	LanButton = MainButton(LOCTEXT("Lan", "LAN PLAY"));
 
 	UTextBlock* OptionsLabel = nullptr;
 	OptionsButton = MainButton(LOCTEXT("Options", "OPTIONS"), &OptionsLabel);
@@ -121,7 +129,7 @@ void UNeonMainMenuWidget::BuildTree()
 
 	QuitButton = MainButton(LOCTEXT("Quit", "QUIT"));
 
-	AddRow(Main, NeonUI::MakeText(WidgetTree, LOCTEXT("MainHint", "LAN, options and credits arrive in later milestones."), 14, NeonUI::Dim, false), 24.f);
+	AddRow(Main, NeonUI::MakeText(WidgetTree, LOCTEXT("MainHint", "Options and credits arrive later. LAN is host + join by IP."), 14, NeonUI::Dim, false), 24.f);
 
 	// ---- Page 1: solo ----
 	UVerticalBox* Solo = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
@@ -144,6 +152,10 @@ void UNeonMainMenuWidget::BuildTree()
 	PowerupsOnButton = AddOption(WidgetTree, PowerupRow, LOCTEXT("On", "ON"));
 	PowerupsOffButton = AddOption(WidgetTree, PowerupRow, LOCTEXT("Off", "OFF"));
 
+	UHorizontalBox* CollapseRow = MakeOptionRow(WidgetTree, Solo, LOCTEXT("Collapse", "CLOSING WALLS"));
+	CollapseOnButton = AddOption(WidgetTree, CollapseRow, LOCTEXT("On", "ON"));
+	CollapseOffButton = AddOption(WidgetTree, CollapseRow, LOCTEXT("Off", "OFF"));
+
 	AddRow(Solo, NeonUI::MakeText(WidgetTree, LOCTEXT("Arena", "ARENA"), 20, NeonUI::Dim), 22.f);
 	ArenaText = NeonUI::MakeText(WidgetTree, LOCTEXT("TheGrid", "THE GRID"), 24, NeonUI::Text);
 	AddRow(Solo, ArenaText, 6.f);
@@ -155,7 +167,37 @@ void UNeonMainMenuWidget::BuildTree()
 	BackButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Back", "BACK"), 22);
 	AddRow(Solo, BackButton, 12.f)->SetHorizontalAlignment(HAlign_Fill);
 
-	AddRow(Solo, NeonUI::MakeText(WidgetTree, LOCTEXT("Controls", "A / D or Left / Right to steer.  Space uses a powerup.  Esc returns here."), 14, NeonUI::Dim, false), 24.f);
+	UTextBlock* Controls = NeonUI::MakeText(WidgetTree, LOCTEXT("Controls", "A / D or Left / Right to steer.  Space uses a powerup.\nAfter you are out, the camera follows a living bike.  A / D switches.  Esc returns here."), 14, NeonUI::Dim, false);
+	Controls->SetAutoWrapText(true);
+	AddRow(Solo, Controls, 24.f);
+
+	// ---- Page 2: LAN ----
+	UVerticalBox* Lan = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	Pages->AddChild(Lan);
+
+	AddRow(Lan, NeonUI::MakeText(WidgetTree, LOCTEXT("LanTitle", "LAN PLAY"), 34, NeonUI::Text), 0.f);
+	UTextBlock* LanHint = NeonUI::MakeText(WidgetTree, LOCTEXT("LanHint", "Host opens this match for the local network. Friends join with your IPv4 address. Windows Firewall must allow NeonGrid / UnrealEditor on private networks. Same Unreal 5.8 build on every PC."), 14, NeonUI::Dim, false);
+	LanHint->SetAutoWrapText(true);
+	AddRow(Lan, LanHint, 12.f);
+
+	LanHostButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Host", "HOST"), 28);
+	AddRow(Lan, LanHostButton, 28.f)->SetHorizontalAlignment(HAlign_Fill);
+
+	AddRow(Lan, NeonUI::MakeText(WidgetTree, LOCTEXT("JoinAddress", "HOST ADDRESS"), 20, NeonUI::Dim), 22.f);
+	LanAddressBox = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass());
+	LanAddressBox->SetHintText(LOCTEXT("IpHint", "192.168.1.10"));
+	LanAddressBox->SetJustification(ETextJustify::Center);
+	AddRow(Lan, LanAddressBox, 6.f)->SetHorizontalAlignment(HAlign_Fill);
+
+	LanJoinButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Join", "JOIN"), 26);
+	AddRow(Lan, LanJoinButton, 14.f)->SetHorizontalAlignment(HAlign_Fill);
+
+	LanStatusText = NeonUI::MakeText(WidgetTree, FText::GetEmpty(), 14, NeonUI::Warning, false);
+	LanStatusText->SetAutoWrapText(true);
+	AddRow(Lan, LanStatusText, 10.f);
+
+	LanBackButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Back", "BACK"), 22);
+	AddRow(Lan, LanBackButton, 18.f)->SetHorizontalAlignment(HAlign_Fill);
 }
 
 void UNeonMainMenuWidget::BindButtons()
@@ -180,6 +222,12 @@ void UNeonMainMenuWidget::BindButtons()
 	if (ExpertButton) { ExpertButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnExpertClicked); }
 	if (PowerupsOnButton)  { PowerupsOnButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnPowerupsOnClicked); }
 	if (PowerupsOffButton) { PowerupsOffButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnPowerupsOffClicked); }
+	if (CollapseOnButton)  { CollapseOnButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnCollapseOnClicked); }
+	if (CollapseOffButton) { CollapseOffButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnCollapseOffClicked); }
+	if (LanButton)      { LanButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanClicked); }
+	if (LanHostButton)  { LanHostButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanHostClicked); }
+	if (LanJoinButton)  { LanJoinButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanJoinClicked); }
+	if (LanBackButton)  { LanBackButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanBackClicked); }
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +239,13 @@ void UNeonMainMenuWidget::LoadSettings()
 		Settings = GI->MatchSettings;
 	}
 	Settings.AIPlayerCount = FMath::Clamp(Settings.AIPlayerCount, 1, 3);
+	if (LanAddressBox)
+	{
+		if (const UNeonGameInstance* GI = GetGameInstance<UNeonGameInstance>())
+		{
+			LanAddressBox->SetText(FText::FromString(GI->LastJoinAddress));
+		}
+	}
 }
 
 void UNeonMainMenuWidget::SaveSettings() const
@@ -214,6 +269,9 @@ void UNeonMainMenuWidget::RefreshSelection()
 
 	NeonUI::SetButtonSelected(PowerupsOnButton, Settings.bPowerupsEnabled);
 	NeonUI::SetButtonSelected(PowerupsOffButton, !Settings.bPowerupsEnabled);
+
+	NeonUI::SetButtonSelected(CollapseOnButton, Settings.bArenaCollapse);
+	NeonUI::SetButtonSelected(CollapseOffButton, !Settings.bArenaCollapse);
 }
 
 void UNeonMainMenuWidget::ShowMainPage()
@@ -243,6 +301,63 @@ void UNeonMainMenuWidget::SetPowerupsEnabled(bool bEnabled)
 	Settings.bPowerupsEnabled = bEnabled;
 	SaveSettings();
 	RefreshSelection();
+}
+
+void UNeonMainMenuWidget::SetCollapseEnabled(bool bEnabled)
+{
+	Settings.bArenaCollapse = bEnabled;
+	SaveSettings();
+	RefreshSelection();
+}
+
+void UNeonMainMenuWidget::OnLanClicked()
+{
+	if (Pages)
+	{
+		Pages->SetActiveWidgetIndex(2);
+	}
+}
+
+void UNeonMainMenuWidget::OnLanBackClicked()
+{
+	ShowMainPage();
+}
+
+void UNeonMainMenuWidget::OnLanHostClicked()
+{
+	if (LanStatusText)
+	{
+		LanStatusText->SetText(LOCTEXT("Hosting", "Opening listen server..."));
+	}
+	if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(GetOwningPlayer()))
+	{
+		PC->RequestHostLan();
+	}
+}
+
+void UNeonMainMenuWidget::OnLanJoinClicked()
+{
+	FString Address = LanAddressBox ? LanAddressBox->GetText().ToString().TrimStartAndEnd() : FString();
+	if (Address.IsEmpty())
+	{
+		if (LanStatusText)
+		{
+			LanStatusText->SetText(LOCTEXT("NeedIp", "Type the host IPv4 address."));
+		}
+		return;
+	}
+	if (UNeonGameInstance* GI = GetGameInstance<UNeonGameInstance>())
+	{
+		GI->LastJoinAddress = Address;
+	}
+	if (LanStatusText)
+	{
+		LanStatusText->SetText(FText::Format(LOCTEXT("Joining", "Joining {0}..."), FText::FromString(Address)));
+	}
+	if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(GetOwningPlayer()))
+	{
+		PC->RequestJoinLan(Address);
+	}
 }
 
 void UNeonMainMenuWidget::OnSoloClicked()
@@ -284,5 +399,7 @@ void UNeonMainMenuWidget::OnHardClicked() { SetDifficulty(ENeonAIDifficulty::Har
 void UNeonMainMenuWidget::OnExpertClicked() { SetDifficulty(ENeonAIDifficulty::Expert); }
 void UNeonMainMenuWidget::OnPowerupsOnClicked() { SetPowerupsEnabled(true); }
 void UNeonMainMenuWidget::OnPowerupsOffClicked() { SetPowerupsEnabled(false); }
+void UNeonMainMenuWidget::OnCollapseOnClicked() { SetCollapseEnabled(true); }
+void UNeonMainMenuWidget::OnCollapseOffClicked() { SetCollapseEnabled(false); }
 
 #undef LOCTEXT_NAMESPACE

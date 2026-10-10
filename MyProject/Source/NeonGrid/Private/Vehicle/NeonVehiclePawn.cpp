@@ -215,6 +215,14 @@ void ANeonVehiclePawn::SetPlayerSlot(int32 InSlot)
 	}
 }
 
+void ANeonVehiclePawn::SetFollowCameraActive(bool bActive)
+{
+	if (FollowCamera)
+	{
+		FollowCamera->SetActive(bActive);
+	}
+}
+
 void ANeonVehiclePawn::HandleEliminated(AActor* /*Vehicle*/, ENeonEliminationCause /*Cause*/)
 {
 	// Hide the body only. The trail stays as an obstacle and stays visible.
@@ -222,6 +230,8 @@ void ANeonVehiclePawn::HandleEliminated(AActor* /*Vehicle*/, ENeonEliminationCau
 	{
 		LeanRoot->SetVisibility(false, true);
 	}
+	// Drop this camera so a dead local player is forced onto a living vehicle (D27 spectator).
+	SetFollowCameraActive(false);
 }
 
 void ANeonVehiclePawn::ResetToSpawn(const FTransform& SpawnTransform)
@@ -230,6 +240,7 @@ void ANeonVehiclePawn::ResetToSpawn(const FTransform& SpawnTransform)
 	{
 		LeanRoot->SetVisibility(true, true);
 	}
+	SetFollowCameraActive(true);
 
 	if (Movement)
 	{
