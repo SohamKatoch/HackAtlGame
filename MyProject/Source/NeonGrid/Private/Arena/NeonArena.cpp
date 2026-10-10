@@ -1181,7 +1181,8 @@ bool ANeonArena::IsWrongWayApproach(FVector2D FromWorld, FVector2D ToWorld, floa
 
 		const float Align = FVector2D::DotProduct(Head, R.Dir);
 		// Only a head-on wrong way is a wall. Crossing the side of a ramp is a ride.
-		const bool bAgainstClimb = (R.Kind == ENeonRampKind::Hill || Layer == R.FromLayer) && Align < -0.55f;
+		// Hills ease back down on their far side, so they ride both ways; only connectors are one-way.
+		const bool bAgainstClimb = R.Kind != ENeonRampKind::Hill && Layer == R.FromLayer && Align < -0.55f;
 		const bool bAgainstDescent = R.Kind == ENeonRampKind::Connector && Layer == R.ToLayer && Align > 0.55f;
 		if (bAgainstClimb || bAgainstDescent)
 		{
