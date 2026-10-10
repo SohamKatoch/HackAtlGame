@@ -19,6 +19,10 @@ public class NeonGrid : ModuleRules
 			"ProceduralMeshComponent"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"OnlineSubsystem",
+			"OnlineSubsystemUtils"
+		});
 	}
 }

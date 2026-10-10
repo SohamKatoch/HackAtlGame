@@ -21,30 +21,30 @@ public:
 
 	/**
 	 * Cruise speed in cm/s. MVP speed is constant at this value unless a powerup overrides it.
-	 * Was 2200, then 1700; playtest still ended rounds in a few seconds, so cruise is 1400 (D27).
+	 * Cruise is 1800 so trails fill the floor before the walls finish closing (D37).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Speed", meta = (ClampMin = "1"))
-	float BaseSpeed = 1400.f;
+	float BaseSpeed = 1800.f;
 
 	/** Speed floor in cm/s. Equal to cruise in the MVP (no acceleration model yet). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Speed", meta = (ClampMin = "1"))
-	float MinSpeed = 1400.f;
+	float MinSpeed = 1800.f;
 
 	// ---- Steering ----
 
 	/**
 	 * Max heading change in degrees per second at full steer, before the radius clamp.
-	 * Guide target was 120; first playtest read as sluggish, raised to 180.
+	 * 300 deg/s so a full steer is a hook instead of a wide arc (D37).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Steering", meta = (ClampMin = "1"))
-	float MaxTurnRate = 180.f;
+	float MaxTurnRate = 300.f;
 
 	/**
 	 * Minimum turn radius in cm. Turn rate is clamped so radius = speed / turnRate never drops
 	 * below this. Together with MinSpeed this makes an instant 180 impossible. 0 disables the clamp.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Steering", meta = (ClampMin = "0"))
-	float MinTurnRadius = 400.f;
+	float MinTurnRadius = 220.f;
 
 	// ---- Collision ----
 
@@ -68,7 +68,7 @@ public:
 	 * so the vehicle does not hit the segment it is still drawing. Older own trail is lethal.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision", meta = (ClampMin = "1", ClampMax = "60"))
-	int32 SelfTrailGraceTicks = 10;
+	int32 SelfTrailGraceTicks = 6;
 
 	// ---- Visual lean (cosmetic only) ----
 
@@ -90,11 +90,11 @@ public:
 
 	/** Interp speed toward a larger lean. Higher is snappier. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lean", meta = (ClampMin = "0.1"))
-	float LeanResponseSpeed = 20.f;
+	float LeanResponseSpeed = 36.f;
 
 	/** Interp speed back toward neutral. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lean", meta = (ClampMin = "0.1"))
-	float LeanReturnSpeed = 7.f;
+	float LeanReturnSpeed = 16.f;
 
 	// ---- Sprint (DECISIONS.md D29). A full bar is one committed burst, then a long refill. ----
 
@@ -110,9 +110,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sprint", meta = (ClampMin = "0.2"))
 	float SprintBurstSeconds = 0.85f;
 
-	/** Fraction restored per second after the burst. ~22 s from empty back to a full bar. */
+	/** Fraction restored per second after the burst. ~8 s from empty back to a full bar. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sprint", meta = (ClampMin = "0.01"))
-	float SprintRechargePerSecond = 0.045f;
+	float SprintRechargePerSecond = 0.12f;
 
 	// ---- Jump meter and air (D29) ----
 
@@ -120,9 +120,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.05", ClampMax = "1"))
 	float JumpCost = 1.f;
 
-	/** Fraction restored per second, on the ground and in the air. ~22 s from empty back to a hop. */
+	/** Fraction restored per second, on the ground and in the air. ~8 s from empty back to a hop. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.01"))
-	float JumpRechargePerSecond = 0.045f;
+	float JumpRechargePerSecond = 0.12f;
 
 	/** Upward speed added by a jump, cm/s. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "100"))

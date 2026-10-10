@@ -16,6 +16,45 @@ namespace
 {
 	// Turn angles considered, in priority order. A level with TurnAnglesPerArc = N uses the first N.
 	constexpr float GTurnAngles[5] = { 90.f, 45.f, 135.f, 30.f, 180.f };
+
+	/** True when To is on a ramp and HeadingDir is going up it. That is a road, not a pit. */
+	bool RidingUpRamp(const ANeonArena& Arena, const FVector2D& To, const FVector2D& HeadingDir)
+	{
+		const FVector Center = Arena.GetActorLocation();
+		const FVector2D Local(To.X - Center.X, To.Y - Center.Y);
+		for (const ANeonArena::FConnector& C : Arena.CachedConnectors)
+		{
+			const float DX = Local.X - C.Origin.X;
+			const float DY = Local.Y - C.Origin.Y;
+			const float Along = DX * C.Dir.X + DY * C.Dir.Y;
+			const float Across = DX * -C.Dir.Y + DY * C.Dir.X;
+			if (Along >= -400.f && Along <= C.Length && FMath::Abs(Across) <= C.HalfWidth
+				&& FVector2D::DotProduct(HeadingDir, C.Dir) > 0.35f)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** 1 when a straight line this way falls in a pit soon, fading with distance. A ramp being ridden is 0. */
+	float PitAim(const ANeonArena& Arena, int32 Layer, const FVector2D& From, const FVector2D& Dir)
+	{
+		constexpr float Range = 5200.f;
+		constexpr int32 Steps = 8;
+		FVector2D Pos = From;
+		for (int32 i = 0; i < Steps; ++i)
+		{
+			const FVector2D Next = Pos + Dir * (Range / Steps);
+			const bool bFloor = Arena.HasFloorOnLayer(Next, Layer);
+			if (!bFloor && !(Layer <= 0 && RidingUpRamp(Arena, Next, Dir)))
+			{
+				return 1.f - static_cast<float>(i) / static_cast<float>(Steps);
+			}
+			Pos = Next;
+		}
+		return 0.f;
+	}
 }
 
 ANeonAIController::ANeonAIController()
@@ -187,8 +226,21 @@ void ANeonAIController::Tick(float DeltaTime)
 		EvaluatePlan(*Movement, P, Committed.Steering, CommittedTurnRemaining(), Current, Path);
 		if (!Current.bSurvives)
 		{
-			bDecide = true;
-			bEmergency = true;
+			// A pit is standing still. Turning early on the normal timer is enough. Emergency
+			// replans are for trails, and firing them at a hole makes the bike thrash.
+			bool bPit = false;
+			if (const ANeonArena* Arena = ANeonArena::FindArena(GetWorld()))
+			{
+				const FVector2D Dir = DirectionFromHeading(Current.EndHeading);
+				const FVector2D Ahead = Current.EndPos + Dir * 280.f;
+				const int32 Layer = Movement->GetSimLayer();
+				bPit = !Arena->HasFloorOnLayer(Ahead, Layer) && !(Layer <= 0 && RidingUpRamp(*Arena, Ahead, Dir));
+			}
+			if (!bPit)
+			{
+				bDecide = true;
+				bEmergency = true;
+			}
 		}
 	}
 
@@ -291,6 +343,7 @@ void ANeonAIController::Decide(bool bEmergency)
 		{
 			S.Chase = ScoreChase(M, P, S);
 			S.Collect = ScoreCollect(P, S, bWantPickup ? &PickupPos : nullptr);
+			S.Floor = ScoreFloor(M, S);
 		}
 
 		const float Sign = FMath::Sign(Steering);
@@ -305,9 +358,19 @@ void ANeonAIController::Decide(bool bEmergency)
 			+ P.SpaceWeight * S.Space
 			+ P.ChaseWeight * S.Chase
 			+ P.CollectWeight * S.Collect
+			+ 1.8f * S.Floor
 			- P.StraightBias * FMath::Abs(Steering)
 			- Loop
 			+ (bContinuation ? P.CommitBias : 0.f);
+
+		// Look past the survival horizon so a line aimed at a pit loses while a small turn still clears it.
+		if (S.bSurvives)
+		{
+			if (const ANeonArena* Arena = ANeonArena::FindArena(GetWorld()))
+			{
+				S.Score -= 2.4f * PitAim(*Arena, M.GetSimLayer(), S.EndPos, DirectionFromHeading(S.EndHeading));
+			}
+		}
 
 		// A pickup already in the neighborhood outweighs a merely tidy line, as long as the plan lives.
 		if (bWantPickup && S.bSurvives)
@@ -660,10 +723,16 @@ bool ANeonAIController::IsStepLethal(const UNeonMovementComponent& M, const FNeo
 		}
 		if (!M.IsAirborne() && !Arena->HasFloorOnLayer(To, M.GetSimLayer()))
 		{
-			const int32 Next = Arena->AdvanceLayer(To, M.GetSimLayer());
-			if (!Arena->HasFloorOnLayer(To, Next))
+			// The ramp footprint is a hole on the ground and a road on the way up. A line
+			// aimed up the slope is a climb, not a pit.
+			const bool bRidingUp = M.GetSimLayer() <= 0 && RidingUpRamp(*Arena, To, DirectionFromHeading(Heading));
+			if (!bRidingUp)
 			{
-				return true;
+				const int32 Next = Arena->AdvanceLayer(To, M.GetSimLayer(), M.GetSimZ());
+				if (!Arena->HasFloorOnLayer(To, Next))
+				{
+					return true;
+				}
 			}
 		}
 	}
@@ -762,7 +831,8 @@ ANeonAIController::FPathResult ANeonAIController::PredictPath(const UNeonMovemen
 	// Path points at least this far back (in distance) count as trail already laid. Mirrors the sim's
 	// rear offset plus grace window.
 	const float GraceSeconds = static_cast<float>(C->SelfTrailGraceTicks) / static_cast<float>(FMath::Max(M.SimulationHz, 1));
-	const float SelfGapDistance = C->TrailRearOffset + GraceSeconds * Speed + Radius;
+	// Extra gap so the tighter turn radius does not plan a hook into the laser the sim will actually hit.
+	const float SelfGapDistance = C->TrailRearOffset + GraceSeconds * Speed + Radius + 240.f;
 
 	FPathResult R;
 	R.Steps = Steps;
@@ -958,6 +1028,53 @@ float ANeonAIController::ScoreChase(const UNeonMovementComponent& M, const FNeon
 // ---------------------------------------------------------------------------
 // Powerups
 // ---------------------------------------------------------------------------
+
+float ANeonAIController::ScoreFloor(const UNeonMovementComponent& M, const FPlanSample& Sample) const
+{
+	const ANeonArena* Arena = ANeonArena::FindArena(GetWorld());
+	if (!Arena || Arena->CachedConnectors.Num() == 0)
+	{
+		return 0.f;
+	}
+
+	const FVector Center = Arena->GetActorLocation();
+	const FVector2D LocalEnd(Sample.EndPos.X - Center.X, Sample.EndPos.Y - Center.Y);
+	const FVector2D Head = DirectionFromHeading(Sample.EndHeading);
+
+	if (M.GetSimLayer() <= 0)
+	{
+		float Best = 0.f;
+		for (const ANeonArena::FConnector& C : Arena->CachedConnectors)
+		{
+			const FVector2D Mouth = C.Origin - C.Dir * 700.f;
+			const float Dist = (LocalEnd - Mouth).Size();
+			const float Near = 1.f - FMath::Clamp(Dist / 7000.f, 0.f, 1.f);
+			const float Align = FMath::Clamp(FVector2D::DotProduct(Head, C.Dir), 0.f, 1.f);
+			Best = FMath::Max(Best, Near * Align);
+		}
+		return Best;
+	}
+
+	if (!Arena->HasFloorOnLayer(Sample.EndPos, 1))
+	{
+		return 0.f;
+	}
+
+	float Stay = 0.85f;
+	for (const ANeonArena::FConnector& C : Arena->CachedConnectors)
+	{
+		const float DX = LocalEnd.X - C.Origin.X;
+		const float DY = LocalEnd.Y - C.Origin.Y;
+		const float Along = DX * C.Dir.X + DY * C.Dir.Y;
+		const float Across = DX * -C.Dir.Y + DY * C.Dir.X;
+		if (Along >= 0.f && Along <= C.Length && FMath::Abs(Across) <= C.HalfWidth
+			&& FVector2D::DotProduct(Head, C.Dir) < -0.2f)
+		{
+			Stay = 0.15f;
+		}
+	}
+	return Stay;
+}
 
 bool ANeonAIController::FindNearestPickup(const UNeonMovementComponent& M, const FNeonAIDifficultyParams& P, FVector2D& OutPos) const
 {

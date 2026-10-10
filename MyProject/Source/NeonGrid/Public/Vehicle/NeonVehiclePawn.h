@@ -80,11 +80,11 @@ public:
 
 	/** Position smoothing. Higher = tighter. */
 	UPROPERTY(EditDefaultsOnly, Category = "Neon|Camera", meta = (ClampMin = "0"))
-	float CameraLagSpeed = 14.f;
+	float CameraLagSpeed = 28.f;
 
 	/** Yaw smoothing so the view swings into turns rather than snapping. */
 	UPROPERTY(EditDefaultsOnly, Category = "Neon|Camera", meta = (ClampMin = "0"))
-	float CameraRotationLagSpeed = 9.f;
+	float CameraRotationLagSpeed = 22.f;
 
 protected:
 	virtual void BeginPlay() override;

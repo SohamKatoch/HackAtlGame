@@ -10,6 +10,7 @@ class UCameraComponent;
 class UDirectionalLightComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
+class UTexture2D;
 
 /**
  * THE GRID. Docs/GAME_DESIGN.md section 8, Docs/TECHNICAL_SPEC.md section 4.
@@ -17,8 +18,9 @@ class UMaterialInstanceDynamic;
  * Owns the gameplay rectangle, four inward-facing spawn points, a fixed whole-arena camera, and
  * cosmetic terrain/wall meshes. The meshes have no collision; the movement step uses GetBounds().
  *
- * Terrain is one flat floor with four one-way hills. No stacked decks and no stepped pyramid.
- * A hill is rideable only in its authored direction; the other way is a wall.
+ * Terrain is two full floors of the same footprint. Four roads, one in the middle of each wall,
+ * climb outward from the center onto the upper floor. Either direction is a ride. The upper floor
+ * also has open holes that drop back to the ground. The outer walls enclose both floors.
  *
  * Collapse (DECISIONS.md D27): the playable rectangle shrinks toward the center during a round.
  * After CollapseStartDelay seconds of play the half extents interpolate linearly from HalfExtents to
@@ -41,7 +43,7 @@ public:
 
 	/**
 	 * Half size of the playable rectangle at round start, cm (X = long axis). 24000 x 16000 total
-	 * (DECISIONS.md D27). At 1400 cm/s a vehicle crosses the long axis in about 17 s.
+	 * (DECISIONS.md D27). At 1800 cm/s a vehicle crosses the long axis in about 13 s.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Arena", meta = (ClampMin = "100"))
 	FVector2D HalfExtents = FVector2D(12000.f, 8000.f);
@@ -54,11 +56,11 @@ public:
 
 	/** Seconds of play before the walls start moving. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Collapse", meta = (ClampMin = "0"))
-	float CollapseStartDelay = 25.f;
+	float CollapseStartDelay = 10.f;
 
 	/** Seconds the walls take to move from HalfExtents to MinHalfExtents. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Collapse", meta = (ClampMin = "1"))
-	float CollapseDuration = 120.f;
+	float CollapseDuration = 45.f;
 
 	/** Final half size, cm. Default is roughly the top two tiers of the pyramid. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Collapse", meta = (ClampMin = "100"))
@@ -137,6 +139,40 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "25"))
 	float TerrainResolution = 100.f;
 
+	/**
+	 * One hill in arena-local XY. The list is rebuilt with the terrain so every height query
+	 * (movement, AI lookahead, pickups) reads it directly instead of re-deriving the layout.
+	 */
+	struct FHill
+	{
+		FVector2D Origin = FVector2D::ZeroVector;
+		FVector2D Dir = FVector2D(1.f, 0.f);
+		float Length = 0.f;
+		float HalfWidth = 0.f;
+	};
+	TArray<FHill> CachedHills;
+	bool bHillsCached = false;
+
+	/** One raised floor the four ramps climb onto. Filled with the terrain mesh. */
+	struct FUpperDeck
+	{
+		FVector2D Center = FVector2D::ZeroVector;
+		FVector2D Half = FVector2D::ZeroVector;
+		float Height = 0.f;
+		bool bValid = false;
+	};
+	FUpperDeck CachedDeck;
+
+	/** One-way ramp from the ground onto CachedDeck. Local XY, same frame as FHill. */
+	struct FConnector
+	{
+		FVector2D Origin = FVector2D::ZeroVector;
+		FVector2D Dir = FVector2D(1.f, 0.f);
+		float Length = 0.f;
+		float HalfWidth = 0.f;
+	};
+	TArray<FConnector> CachedConnectors;
+
 	// ---- Whole-arena camera (menu backdrop / spectator; Docs/GAME_DESIGN.md section 11) ----
 
 	/** Lower (closer to -30) reads more like a 3D driving view; higher (toward -89) is flatter top-down. */
@@ -163,10 +199,10 @@ public:
 	float WallThickness = 40.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Cosmetic")
-	FLinearColor FloorColor = FLinearColor(0.012f, 0.014f, 0.03f);
+	FLinearColor FloorColor = FLinearColor(0.004f, 0.006f, 0.012f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Cosmetic")
-	FLinearColor WallColor = FLinearColor(0.05f, 0.7f, 1.0f);
+	FLinearColor WallColor = FLinearColor(0.01f, 0.08f, 0.14f);
 
 	/** Dev-only directional light so an empty level is visible. Turn off once the level has real lighting (Milestone 8). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Cosmetic")
@@ -260,8 +296,8 @@ public:
 	 */
 	bool IsWrongWayApproach(FVector2D FromWorld, FVector2D ToWorld, float HeadingDegrees, int32 Layer, float WorldZ) const;
 
-	/** Layer the bike should be on after this XY, given the layer it started the step on. */
-	int32 AdvanceLayer(FVector2D WorldXY, int32 Layer) const;
+	/** Layer the bike should be on after this step. WorldZ keeps a bike under a ramp on the ground. */
+	int32 AdvanceLayer(FVector2D WorldXY, int32 Layer, float WorldZ) const;
 
 	/** Closest surface at or below WorldZ. HintLayer is used when nothing is in range. */
 	int32 ResolveLayerAt(FVector2D WorldXY, float WorldZ, int32 HintLayer) const;
@@ -337,6 +373,17 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInterface> PlaceholderMaterial;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> GridMaterial;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> FloorTexture;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> FloorMaterial;
+
+	void EnsureFloorMaterial();
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UMaterialInstanceDynamic>> WallMIDs;

@@ -559,9 +559,9 @@ void ANeonGameMode::BeginCountdown()
 	GS->SetRoundWinnerSlot(-1);
 	if (Arena)
 	{
-		// A placed arena can still be carrying the old 8s / 40s collapse and the cliff lip.
-		Arena->CollapseStartDelay = 25.f;
-		Arena->CollapseDuration = 120.f;
+		// A placed arena can still be carrying an older collapse. Match the snappier defaults (D37).
+		Arena->CollapseStartDelay = 10.f;
+		Arena->CollapseDuration = 45.f;
 		Arena->LaunchRampHeight = 420.f;
 		Arena->LaunchRampLength = 2800.f;
 		Arena->LaunchRampHalfWidth = 1200.f;

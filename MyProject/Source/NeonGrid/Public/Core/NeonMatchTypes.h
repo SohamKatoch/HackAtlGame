@@ -52,3 +52,25 @@ struct NEONGRID_API FNeonMatchSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neon|Match")
 	FName ArenaId = TEXT("TheGrid");
 };
+
+/** One advertised listen host from a LAN session browse. */
+USTRUCT(BlueprintType)
+struct NEONGRID_API FNeonLanGame
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Neon|Lan")
+	FString HostName;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Neon|Lan")
+	int32 Players = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Neon|Lan")
+	int32 MaxPlayers = 4;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Neon|Lan")
+	int32 PingMs = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Neon|Lan")
+	int32 SearchIndex = 0;
+};

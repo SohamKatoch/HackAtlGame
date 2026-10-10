@@ -15,7 +15,7 @@ class UEditableTextBox;
  *
  *   NEON GRID: SOLO / LAN PLAY / OPTIONS / CREDITS / QUIT
  *   SOLO: AI, difficulty, powerups, closing walls, START
- *   LAN: HOST (listen on this PC) / JOIN (IP) / BACK
+ *   LAN: HOST / SCAN NETWORK / join a listed game / JOIN BY ADDRESS / ENGAGE / BACK
  *
  * OPTIONS and CREDITS stay disabled until they exist. START / HOST go through the player controller.
  *
@@ -36,6 +36,7 @@ public:
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeConstruct() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 	void BuildTree();
 	void BindButtons();
@@ -60,8 +61,18 @@ protected:
 	UFUNCTION() void OnCollapseOffClicked();
 	UFUNCTION() void OnLanClicked();
 	UFUNCTION() void OnLanHostClicked();
+	UFUNCTION() void OnLanScanClicked();
 	UFUNCTION() void OnLanJoinClicked();
+	UFUNCTION() void OnLanEngageClicked();
 	UFUNCTION() void OnLanBackClicked();
+	UFUNCTION() void OnJoinFound0();
+	UFUNCTION() void OnJoinFound1();
+	UFUNCTION() void OnJoinFound2();
+	UFUNCTION() void OnJoinFound3();
+
+	void ShowLanPage();
+	void RefreshLanPage();
+	void JoinFound(int32 Index);
 
 	void SetAICount(int32 Count);
 	void SetDifficulty(ENeonAIDifficulty Level);
@@ -95,10 +106,15 @@ protected:
 
 	// LAN page
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> LanHostButton;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> LanScanButton;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> LanJoinButton;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> LanEngageButton;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> LanBackButton;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UEditableTextBox> LanAddressBox;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> LanStatusText;
+	UPROPERTY(Transient) TArray<TObjectPtr<UWidget>> LanGameRows;
+	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> LanGameLabels;
+	UPROPERTY(Transient) TArray<TObjectPtr<UButton>> LanGameJoinButtons;
 
 	FNeonMatchSettings Settings;
 	bool bBoundButtons = false;

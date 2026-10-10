@@ -21,7 +21,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FNeonPowerupEventSignature, ENeonPo
  * Effects are counted in simulation ticks (converted from the config's seconds when they start):
  *   Boost / Overdrive  speed and turn-rate multipliers read by the movement step
  *   Shield             charge(s); TryAbsorbTrailHit() spends one and grants a few ticks of pass-through
- *   Phase              IsPhased(): trail sweeps are ignored; the boundary and vehicles still kill
+ *   Phase              a forward jump; trail sweeps are ignored for the hop; the boundary and vehicles still kill
  *   EMP                applied to the nearest opponent in range: their steering multiplier drops
  *   Trail Cutter       immediate: cuts a hole in the first trail ahead (refused if nothing is in reach)
  *

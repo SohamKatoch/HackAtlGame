@@ -422,6 +422,29 @@ void ANeonPlayerController::RequestJoinLan(const FString& Address)
 	}
 }
 
+void ANeonPlayerController::RequestFindLan()
+{
+	if (UNeonGameInstance* GI = GetGameInstance<UNeonGameInstance>())
+	{
+		GI->FindLanGames();
+	}
+}
+
+void ANeonPlayerController::RequestJoinLanGame(int32 SearchIndex)
+{
+	if (UNeonGameInstance* GI = GetGameInstance<UNeonGameInstance>())
+	{
+		GI->JoinLanGame(SearchIndex);
+	}
+}
+
+void ANeonPlayerController::RequestStartLanMatch(const FNeonMatchSettings& Settings)
+{
+	FNeonMatchSettings Lan = Settings;
+	Lan.AIPlayerCount = 0;
+	ServerStartSoloMatch(Lan);
+}
+
 void ANeonPlayerController::ServerStartSoloMatch_Implementation(const FNeonMatchSettings& Settings)
 {
 	if (ANeonGameMode* GM = GetWorld() ? GetWorld()->GetAuthGameMode<ANeonGameMode>() : nullptr)

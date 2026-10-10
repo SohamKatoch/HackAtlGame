@@ -9,14 +9,14 @@ UNeonAIConfig::UNeonAIConfig()
 
 	FNeonAIDifficultyParams Easy;
 	Easy.DecisionInterval = 0.30f;
-	Easy.ReactionTime = 0.30f;
-	Easy.LookAheadTime = 1.15f;
+	Easy.ReactionTime = 0.18f;
+	Easy.LookAheadTime = 1.35f;
 	Easy.OpennessProbeDistance = 2000.f;
 	Easy.ArcsPerSide = 1;
 	Easy.PredictionSteps = 6;
 	Easy.TurnAnglesPerArc = 2;
 	Easy.OpponentExtrapolationTime = 0.65f;
-	Easy.SafetyMargin = 20.f;
+	Easy.SafetyMargin = 45.f;
 	Easy.MistakeChance = 0.20f;
 	Easy.OpennessWeight = 0.6f;
 	Easy.SpaceWeight = 0.5f;
@@ -32,14 +32,14 @@ UNeonAIConfig::UNeonAIConfig()
 
 	FNeonAIDifficultyParams Normal;
 	Normal.DecisionInterval = 0.15f;
-	Normal.ReactionTime = 0.15f;
-	Normal.LookAheadTime = 1.55f;
+	Normal.ReactionTime = 0.08f;
+	Normal.LookAheadTime = 1.7f;
 	Normal.OpennessProbeDistance = 3000.f;
 	Normal.ArcsPerSide = 2;
 	Normal.PredictionSteps = 8;
 	Normal.TurnAnglesPerArc = 3;
 	Normal.OpponentExtrapolationTime = 1.3f;
-	Normal.SafetyMargin = 30.f;
+	Normal.SafetyMargin = 55.f;
 	Normal.MistakeChance = 0.08f;
 	Normal.OpennessWeight = 1.0f;
 	Normal.SpaceWeight = 1.5f;
@@ -55,14 +55,14 @@ UNeonAIConfig::UNeonAIConfig()
 
 	FNeonAIDifficultyParams Hard;
 	Hard.DecisionInterval = 0.10f;
-	Hard.ReactionTime = 0.08f;
-	Hard.LookAheadTime = 1.9f;
+	Hard.ReactionTime = 0.05f;
+	Hard.LookAheadTime = 2.05f;
 	Hard.OpennessProbeDistance = 3500.f;
 	Hard.ArcsPerSide = 2;
 	Hard.PredictionSteps = 10;
 	Hard.TurnAnglesPerArc = 4;
 	Hard.OpponentExtrapolationTime = 1.6f;
-	Hard.SafetyMargin = 40.f;
+	Hard.SafetyMargin = 60.f;
 	Hard.MistakeChance = 0.02f;
 	Hard.OpennessWeight = 1.2f;
 	Hard.SpaceWeight = 2.0f;
@@ -85,7 +85,7 @@ UNeonAIConfig::UNeonAIConfig()
 	Expert.PredictionSteps = 12;
 	Expert.TurnAnglesPerArc = 5;
 	Expert.OpponentExtrapolationTime = 1.95f;
-	Expert.SafetyMargin = 50.f;
+	Expert.SafetyMargin = 65.f;
 	Expert.MistakeChance = 0.0f;
 	Expert.OpennessWeight = 1.4f;
 	Expert.SpaceWeight = 2.5f;

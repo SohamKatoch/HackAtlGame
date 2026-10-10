@@ -150,6 +150,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
 	int32 GetSimLayer() const { return SimLayer; }
 
+	/**
+	 * Phase activation. Leaves the floor this step, climbs with UpImpulse, and runs at SpeedMultiplier
+	 * for Ticks so the bike lands ahead of the trails it jumped.
+	 */
+	void BeginPhaseJump(float UpImpulse, float InSpeedMultiplier, int32 Ticks);
+
 	/** Grounded, alive, and the jump bar is full. */
 	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
 	bool CanJump() const;
@@ -214,6 +220,9 @@ private:
 	float SimZ = 0.f;
 	float PrevSimZ = 0.f;
 	float VerticalVelocity = 0.f;
+	/** Phase hop: extra speed for a few ticks after leaving the floor. */
+	float PhaseBoostMultiplier = 1.f;
+	int32 PhaseBoostTicks = 0;
 	/** Stacked deck the bike is riding. Jumps keep this until landing. */
 	int32 SimLayer = 0;
 	/** Highest upward speed built on the current climb. Launches off a lip if it clears the threshold. */

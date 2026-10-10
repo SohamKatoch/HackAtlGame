@@ -24,15 +24,15 @@ public:
 	// ---- Spawning (guide: cap 2-4, start at 3; never inside a trail; not right beside a player) ----
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawning", meta = (ClampMin = "1", ClampMax = "8"))
-	int32 MaxActivePowerups = 3;
+	int32 MaxActivePowerups = 5;
 
 	/** Seconds between spawn attempts while under the cap. The guide's "powerup frequency". */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawning", meta = (ClampMin = "0.5"))
-	float SpawnInterval = 5.f;
+	float SpawnInterval = 2.f;
 
 	/** Seconds after GO before the first spawn attempt. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawning", meta = (ClampMin = "0"))
-	float FirstSpawnDelay = 3.f;
+	float FirstSpawnDelay = 0.f;
 
 	/** Seconds a pickup waits before vanishing. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawning", meta = (ClampMin = "1"))
@@ -87,10 +87,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield", meta = (ClampMin = "1", ClampMax = "60"))
 	int32 ShieldPassThroughTicks = 12;
 
-	// ---- Phase (pass through trails; the boundary still kills) ----
+	// ---- Phase (a forward jump that crosses trails; the boundary still kills) ----
 
+	/** How long the hop ignores trails, seconds. Matches the time spent in the air. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Phase", meta = (ClampMin = "0.1"))
-	float PhaseDuration = 2.0f;
+	float PhaseDuration = 0.95f;
+
+	/** Speed multiplier for the hop, so the bike lands well ahead of where it left the floor. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Phase", meta = (ClampMin = "1"))
+	float PhaseSpeedMultiplier = 2.6f;
 
 	// ---- EMP (steering-rate reduction on the nearest opponent in range; D5) ----
 

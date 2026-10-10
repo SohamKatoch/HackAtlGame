@@ -291,3 +291,35 @@ D25 stays the floor function. It is no longer presentation-only.
 - The four rectangular walls are hidden on The Hex. Six blue walls follow the ground hex and close in along that hex during the collapse. Driving into one is the boundary, same as the rectangle on the other maps.
 - The ground hex fills that boundary. Spawns sit on the open ring outside the deck above and off the three ramps, facing the middle. AI spawns use the same ring, and fall back to those four points.
 - The blue skirt around each deck still has a gap where a ramp arrives.
+
+## D33 — One flat Grid, console HUD
+
+**Status:** Accepted (playtest: stacked floors and The Hex were not working; hill stripes floated above the far slope; the HUD needed to read like the Tron console reference, all caps)
+
+- One map. `ANeonArena` always builds The Grid: a flat floor with four one-way hills and four blue walls. There are no decks, connectors, pyramid tiers, or ceilings, so `GetHighestFloorLayer` is 0, `HitsCeiling` is false, `AdvanceLayer` returns the layer it was given, and `TryGetFloorHeightOnLayer` only answers for the ground. Hill geometry is cached on the arena when the terrain is built; every height query (movement, AI lookahead, pickups) reads that list with no allocation.
+- Hill stripes sample the real floor height at every vertex, so they follow the slope back down instead of hanging in the air.
+- HUD, all caps: roster top left (color chip, name, colored score line), framed SPEED readout top center, letterboxed arena map top right, ROUND N over the gauge with a red mark, and one wide bottom gauge with BOOST and JUMP meters that fill toward a center diamond. There is still no match clock.
+- Menu uses the same console kit: glass panels behind a 2 px cyan edge, ink buttons, condensed caps with tracking, display face for titles, section rules.
+
+## D35 — Black-and-blue control system, LAN browse
+
+**Status:** Accepted (playtest: UI was too white; ROUND N never left; LAN needed a game list)
+
+- UI is black + blue only. Palette lives in `NeonUI` (`Void`, `Navy`, `Accent` #008CFF, `Bright` #00B7FF, `Highlight` #8DDCFF). No orange or red on HUD or menus. Alerts pulse bright blue.
+- HUD: speed is the large KM/H readout; ROUND N fades after `RoundDisplaySeconds`; roster is `[ P# ] NAME`; powerups stay blue; countdown is `03` / `ENGAGE`; results are `MATCH COMPLETE`.
+- LAN: host advertises a Null-OSS session. MULTIPLAYER scans the network and lists JOIN rows. Address connect stays as fallback. Host ENGAGE starts a humans-only match.
+
+## D36 — Phase hop and one upper floor
+
+**Status:** Accepted
+
+- Phase leaves the floor: the bike jumps forward at `PhaseSpeedMultiplier` and ignores trails until it lands. The arena boundary and other bikes still kill.
+- The Grid has two full floors of the same footprint. Four roads, one in the middle of each wall, climb between them in either direction. The outer walls enclose both.
+
+## D37 — Snappier bike, faster collapse
+
+**Status:** Accepted
+
+- Cruise is 1800 cm/s. Full steer is 300 deg/s with a 220 cm minimum radius. Lean and the follow camera catch the heading instead of trailing it. Own-trail grace is 6 ticks.
+- Walls start closing at 10 s and finish in 45 s. Sprint and jump refill in about 8 s. Up to 5 powerups, first one as soon as the round starts, then every 2 s.
+

@@ -128,6 +128,8 @@ protected:
 		float Chase = 0.f;
 		/** 0..1: alignment of the plan end with the nearest pickup (0 when none in range or slot full). */
 		float Collect = 0.f;
+		/** 0..1: aimed up a ramp from the ground, or staying on the upper floor. */
+		float Floor = 0.f;
 		float Score = -TNumericLimits<float>::Max();
 		FVector2D EndPos = FVector2D::ZeroVector;
 		float EndHeading = 0.f;
@@ -152,6 +154,8 @@ protected:
 	float ProbeEscape(const UNeonMovementComponent& M, const FNeonAIDifficultyParams& P, const FPlanSample& Sample, const FPathPoints& PlanPath) const;
 	float ScoreChase(const UNeonMovementComponent& M, const FNeonAIDifficultyParams& P, const FPlanSample& Sample) const;
 	float ScoreCollect(const FNeonAIDifficultyParams& P, const FPlanSample& Sample, const FVector2D* PickupPos) const;
+	/** 0..1. On the ground, reward a line aimed up a ramp. Upstairs, reward staying on that floor. */
+	float ScoreFloor(const UNeonMovementComponent& M, const FPlanSample& Sample) const;
 	/** Nearest pickup within P.CollectRange of the vehicle, if the slot is empty and pickups exist. */
 	bool FindNearestPickup(const UNeonMovementComponent& M, const FNeonAIDifficultyParams& P, FVector2D& OutPos) const;
 	/** Decide whether to pulse bActivatePowerup this decision. See class comment. */

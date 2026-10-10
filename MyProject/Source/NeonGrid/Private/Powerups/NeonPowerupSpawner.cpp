@@ -226,21 +226,21 @@ bool UNeonPowerupSpawner::FindSpawnPoint(FVector2D& OutPoint, float& OutFloorZ)
 	{
 		bool bOk = true;
 
-		// Top-most floor at this point. Under a deck the pickup would be hidden, so the deck itself is the spawn surface.
-		float TopZ = 0.f;
-		bool bHasFloor = false;
-		for (int32 Layer = A->GetHighestFloorLayer(); Layer >= 0; --Layer)
+		// Either floor at this point can host a pickup, so the ground and the upper level both get them.
+		TArray<float> Floors;
+		for (int32 Layer = 0; Layer <= A->GetHighestFloorLayer(); ++Layer)
 		{
-			if (A->TryGetFloorHeightOnLayer(P, Layer, TopZ))
+			float LayerZ = 0.f;
+			if (A->TryGetFloorHeightOnLayer(P, Layer, LayerZ))
 			{
-				bHasFloor = true;
-				break;
+				Floors.Add(LayerZ);
 			}
 		}
-		if (!bHasFloor)
+		if (Floors.Num() == 0)
 		{
 			continue;
 		}
+		const float TopZ = Floors[Rng.RandRange(0, Floors.Num() - 1)];
 		FNeonTrailHit Hit;
 		const float SweepZ = TopZ + A->VehicleSpawnHeight;
 		if (Collision->SweepAgainstTrails(P, P, C->MinDistanceFromTrails, INDEX_NONE, 0, Hit, SweepZ, SweepZ, 90.f))

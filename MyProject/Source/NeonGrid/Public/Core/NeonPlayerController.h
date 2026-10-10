@@ -108,6 +108,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Neon|Lan")
 	void RequestJoinLan(const FString& Address);
 
+	/** Browse the local network for advertised hosts. */
+	UFUNCTION(BlueprintCallable, Category = "Neon|Lan")
+	void RequestFindLan();
+
+	/** Join a host from the last network scan. */
+	UFUNCTION(BlueprintCallable, Category = "Neon|Lan")
+	void RequestJoinLanGame(int32 SearchIndex);
+
+	/** Host starts a LAN match: humans only, no AI fill. */
+	UFUNCTION(BlueprintCallable, Category = "Neon|Lan")
+	void RequestStartLanMatch(const FNeonMatchSettings& Settings);
+
 	virtual void PlayerTick(float DeltaTime) override;
 
 protected:

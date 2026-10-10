@@ -7,6 +7,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "NeonGrid.h"
@@ -110,6 +111,7 @@ ANeonArena::ANeonArena()
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> MaterialFinder(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GridFinder(TEXT("/Engine/EngineMaterials/WorldGridMaterial.WorldGridMaterial"));
 
 	if (CubeFinder.Succeeded())
 	{
@@ -118,12 +120,20 @@ ANeonArena::ANeonArena()
 			Wall->SetStaticMesh(CubeFinder.Object);
 		}
 	}
+	if (GridFinder.Succeeded())
+	{
+		GridMaterial = GridFinder.Object;
+	}
 	if (MaterialFinder.Succeeded())
 	{
 		PlaceholderMaterial = MaterialFinder.Object;
+	}
+	UMaterialInterface* WallMat = GridMaterial ? GridMaterial.Get() : PlaceholderMaterial.Get();
+	if (WallMat)
+	{
 		for (UStaticMeshComponent* Mesh : { WallNorth.Get(), WallSouth.Get(), WallEast.Get(), WallWest.Get() })
 		{
-			Mesh->SetMaterial(0, PlaceholderMaterial);
+			Mesh->SetMaterial(0, WallMat);
 		}
 	}
 
@@ -496,30 +506,21 @@ namespace
 		return (X <= R) && (X * 0.5f + Y * HexSqrt3Over2 <= R);
 	}
 
-	bool DeckContains(const FVector2D& LocalXY, const FNeonDeck& D)
-	{
-		const FVector2D P = LocalXY - D.Center;
-		if (D.Shape == ENeonDeckShape::Hex)
-		{
-			return PointInFlatHex(LocalXY, D.Center, D.HexRadius);
-		}
-		return FMath::Abs(P.X) <= D.Half.X && FMath::Abs(P.Y) <= D.Half.Y;
-	}
-
-	bool RampCoords(const FVector2D& LocalXY, const FNeonAuthoredRamp& R, float& Along, float& Across)
-	{
-		const float DX = LocalXY.X - R.Origin.X;
-		const float DY = LocalXY.Y - R.Origin.Y;
-		Along = DX * R.Dir.X + DY * R.Dir.Y;
-		Across = DX * -R.Dir.Y + DY * R.Dir.X;
-		return Along >= 0.f && Along <= R.Length && FMath::Abs(Across) <= R.HalfWidth;
-	}
-
 	void CollectDecks(const ANeonArena& A, TArray<FNeonDeck>& Out)
 	{
-		// No stacked floors. Every layout plays on the ground.
-		(void)A;
 		Out.Reset();
+		if (A.IsHexLayout() || !A.bLaunchRamps)
+		{
+			return;
+		}
+		// A second arena: the same footprint as the ground, raised above it.
+		FNeonDeck D;
+		D.Layer = 1;
+		D.Height = FMath::Max(A.DeckRise, 200.f);
+		D.Shape = ENeonDeckShape::Rect;
+		D.Center = FVector2D::ZeroVector;
+		D.Half = FVector2D(FMath::Max(A.HalfExtents.X - 180.f, 1000.f), FMath::Max(A.HalfExtents.Y - 180.f, 1000.f));
+		Out.Add(D);
 	}
 
 	void AddHill(TArray<FNeonAuthoredRamp>& Out, const FVector2D& Origin, const FVector2D& Dir, const ANeonArena& A)
@@ -530,6 +531,19 @@ namespace
 		R.Length = A.LaunchRampLength;
 		R.HalfWidth = A.LaunchRampHalfWidth;
 		R.Kind = ENeonRampKind::Hill;
+		Out.Add(R);
+	}
+
+	void AddConnector(TArray<FNeonAuthoredRamp>& Out, const FVector2D& Origin, const FVector2D& Dir, const ANeonArena& A, float HalfWidth)
+	{
+		FNeonAuthoredRamp R;
+		R.Origin = Origin;
+		R.Dir = Dir.GetSafeNormal();
+		R.Length = A.LaunchRampLength;
+		R.HalfWidth = HalfWidth;
+		R.Kind = ENeonRampKind::Connector;
+		R.FromLayer = 0;
+		R.ToLayer = 1;
 		Out.Add(R);
 	}
 
@@ -555,11 +569,18 @@ namespace
 				AddHill(Out, FVector2D( 0.62f * H.X, -0.55f * H.Y), FVector2D(-1.f,  0.f), A);
 				break;
 			default:
-				AddHill(Out, FVector2D(-0.40f * H.X,  0.30f * H.Y), FVector2D( 1.f,  0.f), A);
-				AddHill(Out, FVector2D( 0.40f * H.X, -0.30f * H.Y), FVector2D(-1.f,  0.f), A);
-				AddHill(Out, FVector2D( 0.18f * H.X,  0.38f * H.Y), FVector2D( 0.f, -1.f), A);
-				AddHill(Out, FVector2D(-0.18f * H.X, -0.38f * H.Y), FVector2D( 0.f,  1.f), A);
+			{
+				// One road in the middle of each wall. The low end faces the center; the road climbs out toward the wall.
+				const FVector2D Deck(FMath::Max(A.HalfExtents.X - 180.f, 1000.f), FMath::Max(A.HalfExtents.Y - 180.f, 1000.f));
+				constexpr float RoadHalf = 2200.f;
+				constexpr float LandingInset = 800.f;
+				const float Length = A.LaunchRampLength;
+				AddConnector(Out, FVector2D(-Deck.X + LandingInset + Length, 0.f), FVector2D(-1.f,  0.f), A, RoadHalf);
+				AddConnector(Out, FVector2D( Deck.X - LandingInset - Length, 0.f), FVector2D( 1.f,  0.f), A, RoadHalf);
+				AddConnector(Out, FVector2D(0.f, -Deck.Y + LandingInset + Length), FVector2D( 0.f, -1.f), A, RoadHalf);
+				AddConnector(Out, FVector2D(0.f,  Deck.Y - LandingInset - Length), FVector2D( 0.f,  1.f), A, RoadHalf);
 				break;
+			}
 			}
 		}
 	}
@@ -571,24 +592,35 @@ namespace
 			return 0.f;
 		}
 
-		TArray<FNeonAuthoredRamp> Ramps;
-		CollectRamps(Arena, Ramps);
+		// The cache is filled by BuildTerrainMesh. Before the first build (or if a caller asks with no
+		// terrain yet), derive the hills once for this query.
+		TArray<ANeonArena::FHill> Fallback;
+		if (!Arena.bHillsCached)
+		{
+			TArray<FNeonAuthoredRamp> Ramps;
+			CollectRamps(Arena, Ramps);
+			for (const FNeonAuthoredRamp& R : Ramps)
+			{
+				if (R.Kind == ENeonRampKind::Hill)
+				{
+					Fallback.Add({ R.Origin, R.Dir, R.Length, R.HalfWidth });
+				}
+			}
+		}
+		const TArray<ANeonArena::FHill>& Hills = Arena.bHillsCached ? Arena.CachedHills : Fallback;
 
 		const float Lip = FMath::Clamp(Arena.LaunchRampLipFraction, 0.05f, 0.5f);
 		float Height = 0.f;
-		for (const FNeonAuthoredRamp& R : Ramps)
+		for (const ANeonArena::FHill& R : Hills)
 		{
-			if (R.Kind != ENeonRampKind::Hill)
-			{
-				continue;
-			}
-			const float Edge = FMath::Clamp(Arena.LaunchRampHeight * 2.4f, 400.f, R.HalfWidth * 0.85f);
+			// Short hard chamfer so the silhouette stays a wedge, not a rounded mound.
+			constexpr float Chamfer = 90.f;
 			const float Climb = FMath::Max(R.Length * (1.f - Lip), 1.f);
 			const float DX = X - R.Origin.X;
 			const float DY = Y - R.Origin.Y;
 			const float Along = DX * R.Dir.X + DY * R.Dir.Y;
 			const float Across = DX * -R.Dir.Y + DY * R.Dir.X;
-			if (Along < -Edge || Along > R.Length + Edge)
+			if (Along < 0.f || Along > R.Length)
 			{
 				continue;
 			}
@@ -599,32 +631,22 @@ namespace
 			}
 
 			float Profile = 0.f;
-			if (Along > 0.f && Along < Climb)
+			if (Along < Climb)
 			{
-				Profile = FMath::SmoothStep(0.f, 1.f, Along / Climb);
+				Profile = Along / Climb;
 			}
-			else if (Along >= Climb && Along < R.Length)
+			else
 			{
-				Profile = 1.f - FMath::SmoothStep(0.f, 1.f, (Along - Climb) / FMath::Max(R.Length - Climb, 1.f));
+				Profile = 1.f - (Along - Climb) / FMath::Max(R.Length - Climb, 1.f);
 			}
 
 			float Side = 1.f;
-			if (AW > R.HalfWidth - Edge)
+			if (AW > R.HalfWidth - Chamfer)
 			{
-				Side = 1.f - FMath::SmoothStep(0.f, 1.f, (AW - (R.HalfWidth - Edge)) / FMath::Max(Edge, 1.f));
+				Side = 1.f - (AW - (R.HalfWidth - Chamfer)) / Chamfer;
 			}
 
-			float End = 1.f;
-			if (Along < 0.f)
-			{
-				End = 1.f - FMath::SmoothStep(0.f, 1.f, -Along / Edge);
-			}
-			else if (Along > R.Length)
-			{
-				End = 1.f - FMath::SmoothStep(0.f, 1.f, (Along - R.Length) / Edge);
-			}
-
-			Height = FMath::Max(Height, Arena.LaunchRampHeight * Profile * Side * End);
+			Height = FMath::Max(Height, Arena.LaunchRampHeight * Profile * Side);
 		}
 		return Height;
 	}
@@ -663,17 +685,10 @@ namespace
 		return 0.f;
 	}
 
-	float ConnectorHeightAt(const ANeonArena& Arena, const FNeonAuthoredRamp& R, float Along, const TArray<FNeonDeck>& Decks)
-	{
-		const float T = FMath::SmoothStep(0.f, 1.f, FMath::Clamp(Along / FMath::Max(R.Length, 1.f), 0.f, 1.f));
-		const float Z0 = DeckHeightForLayer(Decks, R.FromLayer) + (R.FromLayer == 0 ? PyramidHeightAt(Arena, R.Origin.X, R.Origin.Y) : 0.f);
-		const float Z1 = DeckHeightForLayer(Decks, R.ToLayer);
-		return FMath::Lerp(Z0, Z1, T);
-	}
-
 	/** Deck surface, solid sides down to BelowZ, and two glowing rails. The sides keep a bridge from reading as a floating sheet. */
 	void AddRampMesh(FSectionBuilder& Deck, FSectionBuilder& Sides, FSectionBuilder& Rails, const FNeonAuthoredRamp& R, float Z0, float Z1, float BelowZ)
 	{
+		(void)BelowZ;
 		const FVector2D Perp(-R.Dir.Y, R.Dir.X);
 		constexpr int32 Steps = 10;
 		constexpr float RailWidth = 70.f;
@@ -682,8 +697,8 @@ namespace
 		{
 			const float T0 = static_cast<float>(i) / Steps;
 			const float T1 = static_cast<float>(i + 1) / Steps;
-			const float H0 = FMath::Lerp(Z0, Z1, FMath::SmoothStep(0.f, 1.f, T0));
-			const float H1 = FMath::Lerp(Z0, Z1, FMath::SmoothStep(0.f, 1.f, T1));
+			const float H0 = FMath::Lerp(Z0, Z1, T0);
+			const float H1 = FMath::Lerp(Z0, Z1, T1);
 			const FVector2D P0 = R.Origin + R.Dir * (R.Length * T0);
 			const FVector2D P1 = R.Origin + R.Dir * (R.Length * T1);
 			const FVector A(P0.X - Perp.X * R.HalfWidth, P0.Y - Perp.Y * R.HalfWidth, H0);
@@ -691,24 +706,26 @@ namespace
 			const FVector BB(P1.X - Perp.X * R.HalfWidth, P1.Y - Perp.Y * R.HalfWidth, H1);
 			const FVector D(P1.X + Perp.X * R.HalfWidth, P1.Y + Perp.Y * R.HalfWidth, H1);
 			const FVector N = FVector::CrossProduct(BB - A, C - A).GetSafeNormal();
-			const int32 I0 = Deck.AddVertex(A, N, FVector2D(T0, 0.f));
-			const int32 I1 = Deck.AddVertex(BB, N, FVector2D(T1, 0.f));
-			const int32 I2 = Deck.AddVertex(C, N, FVector2D(T0, 1.f));
-			const int32 I3 = Deck.AddVertex(D, N, FVector2D(T1, 1.f));
+			auto WorldUV = [](const FVector& P) { return FVector2D(P.X / 500.f, P.Y / 500.f); };
+			const int32 I0 = Deck.AddVertex(A, N, WorldUV(A));
+			const int32 I1 = Deck.AddVertex(BB, N, WorldUV(BB));
+			const int32 I2 = Deck.AddVertex(C, N, WorldUV(C));
+			const int32 I3 = Deck.AddVertex(D, N, WorldUV(D));
 			Deck.AddQuad(I0, I1, I2, I3);
 
-			// Sides: from the deck edge straight down. Left side faces -Perp, right side faces +Perp.
+			// A short lip along the edge. The space under the ramp stays open so a bike can drive through it.
+			constexpr float Lip = 18.f;
 			{
 				const FVector LN = FVector(-Perp.X, -Perp.Y, 0.f);
-				const int32 L0 = Sides.AddVertex(FVector(A.X, A.Y, BelowZ), LN, FVector2D(T0, 0.f));
-				const int32 L1 = Sides.AddVertex(FVector(BB.X, BB.Y, BelowZ), LN, FVector2D(T1, 0.f));
+				const int32 L0 = Sides.AddVertex(FVector(A.X, A.Y, A.Z - Lip), LN, FVector2D(T0, 0.f));
+				const int32 L1 = Sides.AddVertex(FVector(BB.X, BB.Y, BB.Z - Lip), LN, FVector2D(T1, 0.f));
 				const int32 L2 = Sides.AddVertex(A, LN, FVector2D(T0, 1.f));
 				const int32 L3 = Sides.AddVertex(BB, LN, FVector2D(T1, 1.f));
 				Sides.Triangles.Append({ L0, L2, L3, L0, L3, L1 });
 
 				const FVector RN = FVector(Perp.X, Perp.Y, 0.f);
-				const int32 R0 = Sides.AddVertex(FVector(C.X, C.Y, BelowZ), RN, FVector2D(T0, 0.f));
-				const int32 R1 = Sides.AddVertex(FVector(D.X, D.Y, BelowZ), RN, FVector2D(T1, 0.f));
+				const int32 R0 = Sides.AddVertex(FVector(C.X, C.Y, C.Z - Lip), RN, FVector2D(T0, 0.f));
+				const int32 R1 = Sides.AddVertex(FVector(D.X, D.Y, D.Z - Lip), RN, FVector2D(T1, 0.f));
 				const int32 R2 = Sides.AddVertex(C, RN, FVector2D(T0, 1.f));
 				const int32 R3 = Sides.AddVertex(D, RN, FVector2D(T1, 1.f));
 				Sides.Triangles.Append({ R0, R3, R2, R0, R1, R3 });
@@ -976,25 +993,218 @@ namespace
 		AddEdgeBand(Rim, FVector2D(X0, Y0), FVector2D(X0, Y1), FVector2D( 1.f, 0.f), Band, Z, Ramps, D.Layer); // west
 	}
 
-	void AddChevrons(FSectionBuilder& Marks, const FNeonAuthoredRamp& R, float Z0, float Z1)
+	// Stripes that follow the surface they sit on. Hills sample the real floor height at every vertex, so a stripe
+	// on the far side of a hill rides the slope back down with it. Connectors keep the straight ramp interpolation.
+	void AddChevrons(FSectionBuilder& Marks, const ANeonArena& Arena, const FNeonAuthoredRamp& R, float Z0, float Z1)
 	{
 		const FVector2D Perp(-R.Dir.Y, R.Dir.X);
 		constexpr int32 StripeCount = 6;
+		constexpr int32 SegmentsPerStripe = 4;
+		constexpr float Half = 70.f;
+		constexpr float Lift = 8.f;
 		const FVector Up = FVector::UpVector;
+
+		auto SurfaceZ = [&](const FVector2D& P, float T) -> float
+		{
+			if (R.Kind == ENeonRampKind::Hill)
+			{
+				return PyramidHeightAt(Arena, P.X, P.Y) + HillHeightAt(Arena, P.X, P.Y) + Lift;
+			}
+			return FMath::Lerp(Z0, Z1, T) + Lift;
+		};
+
 		for (int32 i = 0; i < StripeCount; ++i)
 		{
-			const float T0 = (static_cast<float>(i) + 0.15f) / StripeCount;
-			const float T1 = (static_cast<float>(i) + 0.55f) / StripeCount;
-			const FVector2D A = R.Origin + R.Dir * (R.Length * T0);
-			const FVector2D B = R.Origin + R.Dir * (R.Length * T1);
-			const float H0 = FMath::Lerp(Z0, Z1, FMath::SmoothStep(0.f, 1.f, T0)) + 16.f;
-			const float H1 = FMath::Lerp(Z0, Z1, FMath::SmoothStep(0.f, 1.f, T1)) + 16.f;
-			constexpr float Half = 70.f;
-			const int32 I0 = Marks.AddVertex(FVector(A.X - Perp.X * Half, A.Y - Perp.Y * Half, H0), Up, FVector2D(0.f, 0.f));
-			const int32 I1 = Marks.AddVertex(FVector(B.X - Perp.X * Half, B.Y - Perp.Y * Half, H1), Up, FVector2D(1.f, 0.f));
-			const int32 I2 = Marks.AddVertex(FVector(A.X + Perp.X * Half, A.Y + Perp.Y * Half, H0), Up, FVector2D(0.f, 1.f));
-			const int32 I3 = Marks.AddVertex(FVector(B.X + Perp.X * Half, B.Y + Perp.Y * Half, H1), Up, FVector2D(1.f, 1.f));
-			Marks.AddQuad(I0, I1, I2, I3);
+			const float TStart = (static_cast<float>(i) + 0.15f) / StripeCount;
+			const float TEnd = (static_cast<float>(i) + 0.55f) / StripeCount;
+			for (int32 s = 0; s < SegmentsPerStripe; ++s)
+			{
+				const float T0 = FMath::Lerp(TStart, TEnd, static_cast<float>(s) / SegmentsPerStripe);
+				const float T1 = FMath::Lerp(TStart, TEnd, static_cast<float>(s + 1) / SegmentsPerStripe);
+				const FVector2D A = R.Origin + R.Dir * (R.Length * T0);
+				const FVector2D B = R.Origin + R.Dir * (R.Length * T1);
+				const FVector2D AL = A - Perp * Half;
+				const FVector2D AR = A + Perp * Half;
+				const FVector2D BL = B - Perp * Half;
+				const FVector2D BR = B + Perp * Half;
+				const int32 I0 = Marks.AddVertex(FVector(AL.X, AL.Y, SurfaceZ(AL, T0)), Up, FVector2D(0.f, 0.f));
+				const int32 I1 = Marks.AddVertex(FVector(BL.X, BL.Y, SurfaceZ(BL, T1)), Up, FVector2D(1.f, 0.f));
+				const int32 I2 = Marks.AddVertex(FVector(AR.X, AR.Y, SurfaceZ(AR, T0)), Up, FVector2D(0.f, 1.f));
+				const int32 I3 = Marks.AddVertex(FVector(BR.X, BR.Y, SurfaceZ(BR, T1)), Up, FVector2D(1.f, 1.f));
+				Marks.AddQuad(I0, I1, I2, I3);
+			}
+		}
+	}
+
+	constexpr float RoadApproach = 1600.f;
+
+	/** Openings in the upper floor only. The ground underneath stays solid, so a bike drops through. */
+	struct FDropHole
+	{
+		float X;
+		float Y;
+		float HalfX;
+		float HalfY;
+	};
+
+	constexpr FDropHole GDropHoles[] = {
+		{ 0.f, 0.f, 1100.f, 800.f },
+		{ 4200.f, 3400.f, 800.f, 600.f },
+		{ -4200.f, 3400.f, 800.f, 600.f },
+		{ 4200.f, -3400.f, 800.f, 600.f },
+		{ -4200.f, -3400.f, 800.f, 600.f },
+		{ 7600.f, 4600.f, 650.f, 500.f },
+		{ -7600.f, 4600.f, 650.f, 500.f },
+		{ 7600.f, -4600.f, 650.f, 500.f },
+		{ -7600.f, -4600.f, 650.f, 500.f },
+		{ 5200.f, 0.f, 700.f, 520.f },
+		{ -5200.f, 0.f, 700.f, 520.f },
+	};
+
+	bool InsideDropHole(float X, float Y)
+	{
+		for (const FDropHole& H : GDropHoles)
+		{
+			if (FMath::Abs(X - H.X) <= H.HalfX && FMath::Abs(Y - H.Y) <= H.HalfY)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool InsideRamp(const FVector2D& Origin, const FVector2D& Dir, float Length, float HalfWidth, const FVector2D& P, float Behind = 0.f)
+	{
+		const float DX = P.X - Origin.X;
+		const float DY = P.Y - Origin.Y;
+		const float Along = DX * Dir.X + DY * Dir.Y;
+		const float Across = DX * -Dir.Y + DY * Dir.X;
+		return Along >= -Behind && Along <= Length && FMath::Abs(Across) <= HalfWidth;
+	}
+
+	/** Full second floor with a slot cut for each ramp, a ceiling under it, and its own circuit lines. */
+	void AddSecondFloor(FSectionBuilder& Top, FSectionBuilder& Ceiling, FSectionBuilder& Lines, const FNeonDeck& D, const TArray<FNeonAuthoredRamp>& Ramps, float Res)
+	{
+		const float X0 = D.Center.X - D.Half.X;
+		const float X1 = D.Center.X + D.Half.X;
+		const float Y0 = D.Center.Y - D.Half.Y;
+		const float Y1 = D.Center.Y + D.Half.Y;
+		const int32 CountX = FMath::Max(2, FMath::CeilToInt((X1 - X0) / Res) + 1);
+		const int32 CountY = FMath::Max(2, FMath::CeilToInt((Y1 - Y0) / Res) + 1);
+		const float StepX = (X1 - X0) / (CountX - 1);
+		const float StepY = (Y1 - Y0) / (CountY - 1);
+
+		auto OnRoad = [&](float X, float Y)
+		{
+			if (InsideDropHole(X, Y))
+			{
+				return true;
+			}
+			const FVector2D P(X, Y);
+			for (const FNeonAuthoredRamp& R : Ramps)
+			{
+				if (R.Kind == ENeonRampKind::Connector && InsideRamp(R.Origin, R.Dir, R.Length, R.HalfWidth, P, RoadApproach))
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+
+		TArray<int32> Index;
+		Index.Init(INDEX_NONE, CountX * CountY);
+		TArray<int32> CeilingIndex;
+		CeilingIndex.Init(INDEX_NONE, CountX * CountY);
+		const FVector Up = FVector::UpVector;
+		const FVector Down(0.f, 0.f, -1.f);
+		const float CeilingZ = D.Height - 16.f;
+
+		for (int32 J = 0; J < CountY; ++J)
+		{
+			const float Y = Y0 + J * StepY;
+			for (int32 I = 0; I < CountX; ++I)
+			{
+				const float X = X0 + I * StepX;
+				if (OnRoad(X, Y))
+				{
+					continue;
+				}
+				const int32 At = J * CountX + I;
+				Index[At] = Top.AddVertex(FVector(X, Y, D.Height), Up, FVector2D(X / 500.f, Y / 500.f));
+				CeilingIndex[At] = Ceiling.AddVertex(FVector(X, Y, CeilingZ), Down, FVector2D(X / 500.f, Y / 500.f));
+			}
+		}
+
+		for (int32 J = 0; J < CountY - 1; ++J)
+		{
+			for (int32 I = 0; I < CountX - 1; ++I)
+			{
+				const int32 A = Index[J * CountX + I];
+				const int32 B = Index[J * CountX + I + 1];
+				const int32 C = Index[(J + 1) * CountX + I];
+				const int32 E = Index[(J + 1) * CountX + I + 1];
+				if (A != INDEX_NONE && B != INDEX_NONE && C != INDEX_NONE && E != INDEX_NONE)
+				{
+					Top.AddQuad(A, B, C, E);
+				}
+				const int32 CA = CeilingIndex[J * CountX + I];
+				const int32 CB = CeilingIndex[J * CountX + I + 1];
+				const int32 CC = CeilingIndex[(J + 1) * CountX + I];
+				const int32 CE = CeilingIndex[(J + 1) * CountX + I + 1];
+				if (CA != INDEX_NONE && CB != INDEX_NONE && CC != INDEX_NONE && CE != INDEX_NONE)
+				{
+					// Downward winding.
+					Ceiling.Triangles.Append({ CA, CE, CC, CA, CB, CE });
+				}
+			}
+		}
+
+		auto Ribbon = [&](const FVector2D& P, const FVector2D& Q, float HalfWidth)
+		{
+			const FVector2D Delta = Q - P;
+			const float Len = Delta.Size();
+			if (Len < 1.f)
+			{
+				return;
+			}
+			const FVector2D Dir = Delta / Len;
+			const FVector2D Perp(-Dir.Y, Dir.X);
+			const int32 Steps = FMath::Max(1, FMath::CeilToInt(Len / 250.f));
+			for (int32 Step = 0; Step < Steps; ++Step)
+			{
+				const FVector2D S0 = FMath::Lerp(P, Q, static_cast<float>(Step) / Steps);
+				const FVector2D S1 = FMath::Lerp(P, Q, static_cast<float>(Step + 1) / Steps);
+				if (OnRoad((S0.X + S1.X) * 0.5f, (S0.Y + S1.Y) * 0.5f))
+				{
+					continue;
+				}
+				if (FMath::Abs(S0.X) > D.Half.X || FMath::Abs(S1.X) > D.Half.X || FMath::Abs(S0.Y) > D.Half.Y || FMath::Abs(S1.Y) > D.Half.Y)
+				{
+					continue;
+				}
+				const float Z = D.Height + 6.f;
+				const FVector2D L0 = S0 - Perp * HalfWidth;
+				const FVector2D R0 = S0 + Perp * HalfWidth;
+				const FVector2D L1 = S1 - Perp * HalfWidth;
+				const FVector2D R1 = S1 + Perp * HalfWidth;
+				const int32 I0 = Lines.AddVertex(FVector(L0.X, L0.Y, Z), Up, FVector2D(0.f, 0.f));
+				const int32 I1 = Lines.AddVertex(FVector(R0.X, R0.Y, Z), Up, FVector2D(1.f, 0.f));
+				const int32 I2 = Lines.AddVertex(FVector(L1.X, L1.Y, Z), Up, FVector2D(0.f, 1.f));
+				const int32 I3 = Lines.AddVertex(FVector(R1.X, R1.Y, Z), Up, FVector2D(1.f, 1.f));
+				Lines.AddQuad(I0, I1, I2, I3);
+			}
+		};
+
+		constexpr float Cell = 500.f;
+		for (float X = X0; X <= X1 + 1.f; X += Cell)
+		{
+			const float Width = FMath::IsNearlyZero(FMath::Fmod(FMath::Abs(X), 2000.f), 2.f) ? 16.f : 5.f;
+			Ribbon(FVector2D(X, Y0), FVector2D(X, Y1), Width);
+		}
+		for (float Y = Y0; Y <= Y1 + 1.f; Y += Cell)
+		{
+			const float Width = FMath::IsNearlyZero(FMath::Fmod(FMath::Abs(Y), 2000.f), 2.f) ? 16.f : 5.f;
+			Ribbon(FVector2D(X0, Y), FVector2D(X1, Y), Width);
 		}
 	}
 }
@@ -1028,19 +1238,7 @@ FText ANeonArena::GetLayoutName() const
 
 float ANeonArena::LocalFloorHeight(float LocalX, float LocalY) const
 {
-	if (IsHexLayout())
-	{
-		TArray<FNeonDeck> Decks;
-		CollectDecks(*this, Decks);
-		for (const FNeonDeck& D : Decks)
-		{
-			if (D.Layer == 0 && DeckContains(FVector2D(LocalX, LocalY), D))
-			{
-				return D.Height;
-			}
-		}
-		return 0.f;
-	}
+	// One flat floor with four hills. No allocation on this path; it runs for every bike every sim step.
 	return PyramidHeightAt(*this, LocalX, LocalY) + HillHeightAt(*this, LocalX, LocalY);
 }
 
@@ -1069,66 +1267,61 @@ bool ANeonArena::TryGetFloorHeightOnLayer(FVector2D WorldXY, int32 Layer, float&
 {
 	const FVector Center = GetActorLocation();
 	const FVector2D Local(WorldXY.X - Center.X, WorldXY.Y - Center.Y);
-
-	TArray<FNeonAuthoredRamp> Ramps;
-	CollectRamps(*this, Ramps);
-	TArray<FNeonDeck> Decks;
-	CollectDecks(*this, Decks);
-
-	float Best = -1.e12f;
-	bool bFound = false;
-
-	for (const FNeonAuthoredRamp& R : Ramps)
+	if (Layer == 0)
 	{
-		float Along = 0.f;
-		float Across = 0.f;
-		if (!RampCoords(Local, R, Along, Across))
+		for (const FConnector& C : CachedConnectors)
 		{
-			continue;
-		}
-		if (R.Kind == ENeonRampKind::Hill)
-		{
-			if (Layer != 0)
+			const float DX = Local.X - C.Origin.X;
+			const float DY = Local.Y - C.Origin.Y;
+			const float Along = DX * C.Dir.X + DY * C.Dir.Y;
+			const float Across = DX * -C.Dir.Y + DY * C.Dir.X;
+			// The footprint under the bridge is open. The apron in front of the slope stays solid.
+			if (Along >= 0.f && Along <= C.Length && FMath::Abs(Across) <= C.HalfWidth)
 			{
-				continue;
+				return false;
 			}
-			Best = FMath::Max(Best, LocalFloorHeight(Local.X, Local.Y));
-			bFound = true;
-			continue;
 		}
-		if (R.FromLayer != Layer && R.ToLayer != Layer)
-		{
-			continue;
-		}
-		const float T = Along / FMath::Max(R.Length, 1.f);
-		const float ConnectorZ = ConnectorHeightAt(*this, R, Along, Decks);
-		// Stay on the slope until the ramp actually meets the deck, so the bike does not pop through it.
-		if (T < 0.94f)
-		{
-			OutWorldZ = Center.Z + ConnectorZ;
-			return true;
-		}
-		Best = FMath::Max(Best, ConnectorZ);
-		bFound = true;
+		OutWorldZ = Center.Z + LocalFloorHeight(Local.X, Local.Y);
+		return true;
 	}
-
-	for (const FNeonDeck& D : Decks)
+	if (Layer != 1 || !CachedDeck.bValid)
 	{
-		if (D.Layer != Layer || !DeckContains(Local, D))
+		return false;
+	}
+
+	bool bHit = false;
+	float Best = 0.f;
+	bool bOnRamp = false;
+	bool bOpenMouth = false;
+	for (const FConnector& C : CachedConnectors)
+	{
+		const float DX = Local.X - C.Origin.X;
+		const float DY = Local.Y - C.Origin.Y;
+		const float Along = DX * C.Dir.X + DY * C.Dir.Y;
+		const float Across = DX * -C.Dir.Y + DY * C.Dir.X;
+		if (Along < -1600.f || Along > C.Length || FMath::Abs(Across) > C.HalfWidth)
 		{
 			continue;
 		}
-		Best = FMath::Max(Best, D.Height);
-		bFound = true;
+		if (Along < 0.f)
+		{
+			// Ground apron in front of the slope. The upper floor is cut away here.
+			bOpenMouth = true;
+			break;
+		}
+		Best = CachedDeck.Height * (Along / FMath::Max(C.Length, 1.f));
+		bHit = true;
+		bOnRamp = true;
+		break;
 	}
-
-	if (Layer == 0 && !IsHexLayout())
+	const FVector2D FromDeck = Local - CachedDeck.Center;
+	if (!bOnRamp && !bOpenMouth && !InsideDropHole(Local.X, Local.Y)
+		&& FMath::Abs(FromDeck.X) <= CachedDeck.Half.X && FMath::Abs(FromDeck.Y) <= CachedDeck.Half.Y)
 	{
-		Best = FMath::Max(Best, LocalFloorHeight(Local.X, Local.Y));
-		bFound = true;
+		Best = CachedDeck.Height;
+		bHit = true;
 	}
-
-	if (!bFound)
+	if (!bHit)
 	{
 		return false;
 	}
@@ -1163,60 +1356,36 @@ bool ANeonArena::IsWrongWayApproach(FVector2D FromWorld, FVector2D ToWorld, floa
 	const FVector2D To(ToWorld.X - Center.X, ToWorld.Y - Center.Y);
 	const float Rad = FMath::DegreesToRadians(HeadingDegrees);
 	const FVector2D Head(FMath::Cos(Rad), FMath::Sin(Rad));
+	(void)Layer;
+	(void)WorldZ;
 
-	TArray<FNeonAuthoredRamp> Ramps;
-	CollectRamps(*this, Ramps);
-	TArray<FNeonDeck> Decks;
-	CollectDecks(*this, Decks);
-
-	for (const FNeonAuthoredRamp& R : Ramps)
+	// A hill is one-way only at its front lip.
+	for (const FHill& H : CachedHills)
 	{
-		float Along0 = 0.f, Across0 = 0.f, Along1 = 0.f, Across1 = 0.f;
-		const bool bOn0 = RampCoords(From, R, Along0, Across0);
-		const bool bOn1 = RampCoords(To, R, Along1, Across1);
-		if (!bOn1 || bOn0)
+		float AlongFrom = 0.f;
+		float AcrossFrom = 0.f;
+		float AlongTo = 0.f;
+		float AcrossTo = 0.f;
+		auto Coords = [&](const FVector2D& P, float& Along, float& Across)
+		{
+			const float DX = P.X - H.Origin.X;
+			const float DY = P.Y - H.Origin.Y;
+			Along = DX * H.Dir.X + DY * H.Dir.Y;
+			Across = DX * -H.Dir.Y + DY * H.Dir.X;
+		};
+		Coords(From, AlongFrom, AcrossFrom);
+		Coords(To, AlongTo, AcrossTo);
+
+		const bool bWasInside = AlongFrom >= 0.f && AlongFrom <= H.Length && FMath::Abs(AcrossFrom) <= H.HalfWidth;
+		const bool bNowInside = AlongTo >= 0.f && AlongTo <= H.Length && FMath::Abs(AcrossTo) <= H.HalfWidth;
+		if (!bNowInside || bWasInside)
 		{
 			continue;
 		}
 
-		const float Align = FVector2D::DotProduct(Head, R.Dir);
-		// Only a head-on wrong way is a wall. Crossing the side of a ramp is a ride.
-		const bool bAgainstClimb = (R.Kind == ENeonRampKind::Hill || Layer == R.FromLayer) && Align < -0.55f;
-		const bool bAgainstDescent = R.Kind == ENeonRampKind::Connector && Layer == R.ToLayer && Align > 0.55f;
-		if (bAgainstClimb || bAgainstDescent)
-		{
-			return true;
-		}
-	}
-
-	const float LocalZ = WorldZ - Center.Z;
-	for (const FNeonDeck& D : Decks)
-	{
-		if (D.Layer <= Layer || !DeckContains(To, D) || DeckContains(From, D))
-		{
-			continue;
-		}
-		if (LocalZ < D.Height - 80.f || LocalZ > D.Height + 80.f)
-		{
-			continue;
-		}
-		bool bViaRamp = false;
-		for (const FNeonAuthoredRamp& R : Ramps)
-		{
-			if (R.Kind != ENeonRampKind::Connector || R.ToLayer != D.Layer)
-			{
-				continue;
-			}
-			float Along = 0.f, Across = 0.f;
-			const bool bTo = RampCoords(To, R, Along, Across);
-			const bool bFrom = RampCoords(From, R, Along, Across);
-			if (bTo || bFrom)
-			{
-				bViaRamp = true;
-				break;
-			}
-		}
-		if (!bViaRamp)
+		// Only the front mouth is a wall. Entering from the side or the back is a ride.
+		const bool bThroughFront = AlongFrom < 0.f && FMath::Abs(AcrossFrom) <= H.HalfWidth;
+		if (bThroughFront && FVector2D::DotProduct(Head, H.Dir) < -0.55f)
 		{
 			return true;
 		}
@@ -1224,35 +1393,29 @@ bool ANeonArena::IsWrongWayApproach(FVector2D FromWorld, FVector2D ToWorld, floa
 	return false;
 }
 
-int32 ANeonArena::AdvanceLayer(FVector2D WorldXY, int32 Layer) const
+int32 ANeonArena::AdvanceLayer(FVector2D WorldXY, int32 Layer, float WorldZ) const
 {
+	if (Layer > 0 || !CachedDeck.bValid)
+	{
+		return Layer;
+	}
 	const FVector Center = GetActorLocation();
 	const FVector2D Local(WorldXY.X - Center.X, WorldXY.Y - Center.Y);
-	TArray<FNeonAuthoredRamp> Ramps;
-	CollectRamps(*this, Ramps);
-	for (const FNeonAuthoredRamp& R : Ramps)
+	for (const FConnector& C : CachedConnectors)
 	{
-		if (R.Kind != ENeonRampKind::Connector)
+		const float DX = Local.X - C.Origin.X;
+		const float DY = Local.Y - C.Origin.Y;
+		const float Along = DX * C.Dir.X + DY * C.Dir.Y;
+		const float Across = DX * -C.Dir.Y + DY * C.Dir.X;
+		if (Along <= 0.f || Along > C.Length || FMath::Abs(Across) > C.HalfWidth)
 		{
 			continue;
 		}
-		if (R.FromLayer != Layer && R.ToLayer != Layer)
+		// Only the top of the ramp is a floor. A bike on the ground underneath stays there.
+		const float RampZ = Center.Z + CachedDeck.Height * (Along / FMath::Max(C.Length, 1.f));
+		if (WorldZ >= RampZ - 80.f && WorldZ <= RampZ + 160.f)
 		{
-			continue;
-		}
-		float Along = 0.f, Across = 0.f;
-		if (!RampCoords(Local, R, Along, Across))
-		{
-			continue;
-		}
-		const float T = Along / FMath::Max(R.Length, 1.f);
-		if (T >= 0.94f)
-		{
-			return R.ToLayer;
-		}
-		if (T <= 0.06f)
-		{
-			return R.FromLayer;
+			return 1;
 		}
 	}
 	return Layer;
@@ -1286,35 +1449,105 @@ int32 ANeonArena::ResolveLayerAt(FVector2D WorldXY, float WorldZ, int32 HintLaye
 
 int32 ANeonArena::GetHighestFloorLayer() const
 {
-	return IsHexLayout() ? 3 : 1;
+	return CachedDeck.bValid ? 1 : 0;
 }
 
 bool ANeonArena::HitsCeiling(FVector2D WorldXY, float BelowZ, float AboveZ, float& OutCeilingZ) const
 {
+	if (!CachedDeck.bValid)
+	{
+		return false;
+	}
 	const FVector Center = GetActorLocation();
 	const FVector2D Local(WorldXY.X - Center.X, WorldXY.Y - Center.Y);
-	TArray<FNeonDeck> Decks;
-	CollectDecks(*this, Decks);
-	float Lowest = 1.e12f;
-	bool bHit = false;
-	for (const FNeonDeck& D : Decks)
+	const FVector2D FromDeck = Local - CachedDeck.Center;
+	if (FMath::Abs(FromDeck.X) > CachedDeck.Half.X - 80.f || FMath::Abs(FromDeck.Y) > CachedDeck.Half.Y - 80.f)
 	{
-		if (D.Layer <= 0 || !DeckContains(Local, D))
+		return false;
+	}
+	if (InsideDropHole(Local.X, Local.Y))
+	{
+		return false;
+	}
+	for (const FConnector& C : CachedConnectors)
+	{
+		const float DX = Local.X - C.Origin.X;
+		const float DY = Local.Y - C.Origin.Y;
+		const float Along = DX * C.Dir.X + DY * C.Dir.Y;
+		const float Across = DX * -C.Dir.Y + DY * C.Dir.X;
+		if (Along >= -1600.f && Along <= C.Length && FMath::Abs(Across) <= C.HalfWidth)
 		{
-			continue;
-		}
-		const float H = Center.Z + D.Height;
-		if (BelowZ < H && AboveZ >= H && H < Lowest)
-		{
-			Lowest = H;
-			bHit = true;
+			return false;
 		}
 	}
-	if (bHit)
+	const float Ceiling = Center.Z + CachedDeck.Height - 16.f;
+	if (BelowZ < Ceiling - 1.f && AboveZ >= Ceiling)
 	{
-		OutCeilingZ = Lowest;
+		OutCeilingZ = Ceiling;
+		return true;
 	}
-	return bHit;
+	return false;
+}
+
+void ANeonArena::EnsureFloorMaterial()
+{
+	if (FloorMaterial && FloorTexture)
+	{
+		return;
+	}
+
+	constexpr int32 Size = 512;
+	TArray<FColor> Pixels;
+	Pixels.Init(FColor(4, 8, 16, 255), Size * Size);
+	const FColor Minor(0, 72, 145, 255);
+	const FColor Major(64, 140, 175, 255);
+	for (int32 Y = 0; Y < Size; ++Y)
+	{
+		for (int32 X = 0; X < Size; ++X)
+		{
+			const bool bMajor = (X % 128) < 3 || (Y % 128) < 3;
+			const bool bMinor = (X % 32) < 1 || (Y % 32) < 1;
+			if (bMajor)
+			{
+				Pixels[Y * Size + X] = Major;
+			}
+			else if (bMinor)
+			{
+				Pixels[Y * Size + X] = Minor;
+			}
+		}
+	}
+
+	FloorTexture = UTexture2D::CreateTransient(Size, Size, PF_B8G8R8A8, TEXT("NeonFloorGrid"));
+	if (!FloorTexture || !FloorTexture->GetPlatformData() || FloorTexture->GetPlatformData()->Mips.Num() == 0)
+	{
+		return;
+	}
+	FloorTexture->SRGB = true;
+	FloorTexture->Filter = TF_Bilinear;
+	FloorTexture->AddressX = TA_Wrap;
+	FloorTexture->AddressY = TA_Wrap;
+	FloorTexture->NeverStream = true;
+	FTexture2DMipMap& Mip = FloorTexture->GetPlatformData()->Mips[0];
+	void* Data = Mip.BulkData.Lock(LOCK_READ_WRITE);
+	FMemory::Memcpy(Data, Pixels.GetData(), Pixels.Num() * sizeof(FColor));
+	Mip.BulkData.Unlock();
+	FloorTexture->UpdateResource();
+
+	UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/EmissiveTexturedMaterial.EmissiveTexturedMaterial"));
+	if (!Parent)
+	{
+		Parent = GridMaterial ? GridMaterial.Get() : PlaceholderMaterial.Get();
+	}
+	if (!Parent)
+	{
+		return;
+	}
+	FloorMaterial = UMaterialInstanceDynamic::Create(Parent, this);
+	if (FloorMaterial)
+	{
+		FloorMaterial->SetTextureParameterValue(TEXT("Texture"), FloorTexture);
+	}
 }
 
 void ANeonArena::BuildTerrainMesh()
@@ -1326,23 +1559,57 @@ void ANeonArena::BuildTerrainMesh()
 
 	Terrain->ClearAllMeshSections();
 
+	EnsureFloorMaterial();
+
 	const float Res = FMath::Max(TerrainResolution, 25.f);
 	TArray<FNeonDeck> Decks;
 	CollectDecks(*this, Decks);
 	TArray<FNeonAuthoredRamp> Ramps;
 	CollectRamps(*this, Ramps);
 
-	auto Commit = [this](int32 Section, FSectionBuilder& B, const FLinearColor& Color)
+	// Cache the hills first: every LocalFloorHeight call below (and every one at runtime) reads this list.
+	CachedHills.Reset();
+	CachedConnectors.Reset();
+	CachedDeck.bValid = false;
+	for (const FNeonAuthoredRamp& R : Ramps)
+	{
+		if (R.Kind == ENeonRampKind::Hill)
+		{
+			CachedHills.Add({ R.Origin, R.Dir, R.Length, R.HalfWidth });
+		}
+		else if (R.Kind == ENeonRampKind::Connector)
+		{
+			CachedConnectors.Add({ R.Origin, R.Dir, R.Length, R.HalfWidth });
+		}
+	}
+	for (const FNeonDeck& D : Decks)
+	{
+		if (D.Layer == 1 && D.Shape == ENeonDeckShape::Rect)
+		{
+			CachedDeck.Center = D.Center;
+			CachedDeck.Half = D.Half;
+			CachedDeck.Height = D.Height;
+			CachedDeck.bValid = true;
+		}
+	}
+	bHillsCached = true;
+
+	auto Commit = [this](int32 Section, FSectionBuilder& B, const FLinearColor& Color, UMaterialInterface* Material = nullptr)
 	{
 		if (B.Vertices.Num() == 0)
 		{
 			return;
 		}
 		Terrain->CreateMeshSection_LinearColor(Section, B.Vertices, B.Triangles, B.Normals, B.UVs, B.Colors, B.Tangents, false);
-		if (PlaceholderMaterial)
+		UMaterialInterface* Base = Material ? Material : PlaceholderMaterial.Get();
+		if (Base)
 		{
-			Terrain->SetMaterial(Section, PlaceholderMaterial);
-			if (UMaterialInstanceDynamic* MID = Terrain->CreateAndSetMaterialInstanceDynamic(Section))
+		Terrain->SetMaterial(Section, Base);
+		if (Base == FloorMaterial.Get())
+		{
+			return;
+		}
+		if (UMaterialInstanceDynamic* MID = Terrain->CreateAndSetMaterialInstanceDynamic(Section))
 			{
 				MID->SetVectorParameterValue(TEXT("Color"), Color);
 			}
@@ -1383,13 +1650,29 @@ void ANeonArena::BuildTerrainMesh()
 				const float Z = LocalFloorHeight(X, Y);
 				const float DhDx = (LocalFloorHeight(X + Eps, Y) - LocalFloorHeight(X - Eps, Y)) / (2.f * Eps);
 				const float DhDy = (LocalFloorHeight(X, Y + Eps) - LocalFloorHeight(X, Y - Eps)) / (2.f * Eps);
-				Floor.AddVertex(FVector(X, Y, Z), FVector(-DhDx, -DhDy, 1.f).GetSafeNormal(), FVector2D(X / 400.f, Y / 400.f));
+				Floor.AddVertex(FVector(X, Y, Z), FVector(-DhDx, -DhDy, 1.f).GetSafeNormal(), FVector2D(X / 500.f, Y / 500.f));
 			}
 		}
 		for (int32 J = 0; J < CountY - 1; ++J)
 		{
 			for (int32 I = 0; I < CountX - 1; ++I)
 			{
+				const float X0 = -HalfExtents.X + I * StepX;
+				const float Y0 = -HalfExtents.Y + J * StepY;
+				const FVector2D Mid(X0 + StepX * 0.5f, Y0 + StepY * 0.5f);
+				bool bHole = false;
+				for (const FNeonAuthoredRamp& R : Ramps)
+				{
+					if (R.Kind == ENeonRampKind::Connector && InsideRamp(R.Origin, R.Dir, R.Length, R.HalfWidth, Mid))
+					{
+						bHole = true;
+						break;
+					}
+				}
+				if (bHole)
+				{
+					continue;
+				}
 				const int32 A = J * CountX + I;
 				const int32 B = A + 1;
 				const int32 C = A + CountX;
@@ -1398,7 +1681,67 @@ void ANeonArena::BuildTerrainMesh()
 			}
 		}
 	}
-	Commit(0, Floor, IsHexLayout() ? FLinearColor(0.05f, 0.16f, 0.28f) : FloorColor);
+	Commit(0, Floor, IsHexLayout() ? FLinearColor(0.02f, 0.06f, 0.10f) : FloorColor, FloorMaterial ? FloorMaterial.Get() : GridMaterial.Get());
+
+	// Circuit grid. BasicShapeMaterial has no texture slot, so the lines are thin strips that follow the floor.
+	{
+		FSectionBuilder Lines;
+		constexpr float Cell = 500.f;
+		auto Ribbon = [&](const FVector2D& A, const FVector2D& B, float HalfWidth)
+		{
+			const FVector2D Delta = B - A;
+			const float Len = Delta.Size();
+			if (Len < 1.f)
+			{
+				return;
+			}
+			const FVector2D Dir = Delta / Len;
+			const FVector2D Perp(-Dir.Y, Dir.X);
+			const int32 Steps = FMath::Max(1, FMath::CeilToInt(Len / 250.f));
+			for (int32 Step = 0; Step < Steps; ++Step)
+			{
+				const FVector2D P0 = FMath::Lerp(A, B, static_cast<float>(Step) / Steps);
+				const FVector2D P1 = FMath::Lerp(A, B, static_cast<float>(Step + 1) / Steps);
+				const FVector2D Mid = (P0 + P1) * 0.5f;
+				bool bHole = false;
+				for (const FNeonAuthoredRamp& R : Ramps)
+				{
+					if (R.Kind == ENeonRampKind::Connector && InsideRamp(R.Origin, R.Dir, R.Length, R.HalfWidth, Mid))
+					{
+						bHole = true;
+						break;
+					}
+				}
+				if (bHole)
+				{
+					continue;
+				}
+				const FVector2D L0 = P0 - Perp * HalfWidth;
+				const FVector2D R0 = P0 + Perp * HalfWidth;
+				const FVector2D L1 = P1 - Perp * HalfWidth;
+				const FVector2D R1 = P1 + Perp * HalfWidth;
+				const float Z0 = LocalFloorHeight(P0.X, P0.Y) + 6.f;
+				const float Z1 = LocalFloorHeight(P1.X, P1.Y) + 6.f;
+				const int32 I0 = Lines.AddVertex(FVector(L0.X, L0.Y, Z0), FVector::UpVector, FVector2D(0.f, 0.f));
+				const int32 I1 = Lines.AddVertex(FVector(R0.X, R0.Y, Z0), FVector::UpVector, FVector2D(1.f, 0.f));
+				const int32 I2 = Lines.AddVertex(FVector(L1.X, L1.Y, Z1), FVector::UpVector, FVector2D(0.f, 1.f));
+				const int32 I3 = Lines.AddVertex(FVector(R1.X, R1.Y, Z1), FVector::UpVector, FVector2D(1.f, 1.f));
+				Lines.AddQuad(I0, I1, I2, I3);
+			}
+		};
+
+		for (float X = -HalfExtents.X; X <= HalfExtents.X + 1.f; X += Cell)
+		{
+			const float Width = FMath::IsNearlyZero(FMath::Fmod(FMath::Abs(X), 2000.f), 2.f) ? 16.f : 5.f;
+			Ribbon(FVector2D(X, -HalfExtents.Y), FVector2D(X, HalfExtents.Y), Width);
+		}
+		for (float Y = -HalfExtents.Y; Y <= HalfExtents.Y + 1.f; Y += Cell)
+		{
+			const float Width = FMath::IsNearlyZero(FMath::Fmod(FMath::Abs(Y), 2000.f), 2.f) ? 16.f : 5.f;
+			Ribbon(FVector2D(-HalfExtents.X, Y), FVector2D(HalfExtents.X, Y), Width);
+		}
+		Commit(11, Lines, FLinearColor(0.0f, 0.55f, 1.0f));
+	}
 
 	// ---- Section 1: pyramid lips ----
 	FSectionBuilder Lips;
@@ -1422,8 +1765,9 @@ void ANeonArena::BuildTerrainMesh()
 	}
 	Commit(1, Lips, WallColor);
 
-	// ---- Sections 2-3: stacked decks, solid edges, and the ceiling you see from below ----
+	// ---- Sections 2-3: the second floor, its ceiling, and its own circuit grid ----
 	FSectionBuilder DeckTops;
+	FSectionBuilder UpperLines;
 	for (const FNeonDeck& D : Decks)
 	{
 		if (D.Layer <= 0)
@@ -1434,6 +1778,10 @@ void ANeonArena::BuildTerrainMesh()
 		if (D.Shape == ENeonDeckShape::Hex)
 		{
 			AddHexDeck(DeckTops, Skirts, Ceilings, D, Res, Below, Ramps);
+		}
+		else if (!IsHexLayout())
+		{
+			AddSecondFloor(DeckTops, Ceilings, UpperLines, D, Ramps, 200.f);
 		}
 		else
 		{
@@ -1446,11 +1794,12 @@ void ANeonArena::BuildTerrainMesh()
 		Void.AddFlatRect(-HalfExtents.X, -HalfExtents.Y, HalfExtents.X, HalfExtents.Y, -60.f);
 		Commit(7, Void, FLinearColor(0.12f, 0.01f, 0.03f));
 	}
-	const FLinearColor DeckColor = FLinearColor(0.10f, 0.04f, 0.16f);
-	Commit(2, DeckTops, DeckColor);
+	const FLinearColor DeckColor = FLinearColor(0.012f, 0.028f, 0.05f);
+	Commit(2, DeckTops, DeckColor, FloorMaterial.Get());
 	Commit(3, Skirts, FLinearColor(0.05f, 0.55f, 0.85f));
 	Commit(6, HexRims, LaunchRampColor);
-	Commit(8, Ceilings, FLinearColor(0.02f, 0.35f, 0.55f));
+	Commit(8, Ceilings, FLinearColor(0.01f, 0.04f, 0.08f), FloorMaterial.Get());
+	Commit(13, UpperLines, FLinearColor(0.0f, 0.45f, 0.9f));
 
 	// ---- Sections 4, 5, 9: connector ramps. Dark deck, cyan stripes and rails, solid sides ----
 	FSectionBuilder Connectors;
@@ -1466,7 +1815,7 @@ void ANeonArena::BuildTerrainMesh()
 			: DeckHeightForLayer(Decks, R.ToLayer);
 		if (R.Kind == ENeonRampKind::Connector)
 		{
-			// Sides drop to the floor the ramp starts from, so a bridge reads as a solid block instead of a floating sheet.
+			// The ramp is only its top surface. The lip is a few centimeters, so the road underneath stays clear.
 			float SideBottom = Z0 - 6.f;
 			if (R.FromLayer == 0)
 			{
@@ -1475,9 +1824,9 @@ void ANeonArena::BuildTerrainMesh()
 			}
 			AddRampMesh(Connectors, RampSides, Marks, R, Z0, Z1, SideBottom);
 		}
-		AddChevrons(Marks, R, Z0, Z1);
+		AddChevrons(Marks, *this, R, Z0, Z1);
 	}
-	Commit(4, Connectors, FLinearColor(0.07f, 0.03f, 0.12f));
+	Commit(4, Connectors, FLinearColor(0.015f, 0.035f, 0.06f), FloorMaterial.Get());
 	Commit(5, Marks, LaunchRampColor);
 	Commit(9, RampSides, FLinearColor(0.05f, 0.55f, 0.85f));
 
@@ -1599,6 +1948,54 @@ void ANeonArena::LayoutWalls(const FVector2D& Half)
 	{
 		WallWest->SetRelativeLocation(FVector(-Half.X - WallThickness * 0.5f, 0.f, HalfWallZ));
 		WallWest->SetRelativeScale3D(FVector(Thick, LongY, Tall));
+	}
+
+	// Inner-face circuit so the laser wall reads as a panel, not a flat slab.
+	if (Terrain)
+	{
+		FSectionBuilder Face;
+		constexpr float Pitch = 180.f;
+		constexpr float Band = 4.f;
+		const float Top = WallHeight;
+		auto Quad = [&](const FVector& A, const FVector& B, const FVector& C, const FVector& D, const FVector& N)
+		{
+			const int32 I0 = Face.AddVertex(A, N, FVector2D(0.f, 0.f));
+			const int32 I1 = Face.AddVertex(B, N, FVector2D(1.f, 0.f));
+			const int32 I2 = Face.AddVertex(C, N, FVector2D(0.f, 1.f));
+			const int32 I3 = Face.AddVertex(D, N, FVector2D(1.f, 1.f));
+			Face.AddQuad(I0, I1, I2, I3);
+		};
+		auto WallLines = [&](const FVector& Origin, const FVector& Along, const FVector& Normal, float Length)
+		{
+			const FVector Dir = Along.GetSafeNormal();
+			const float Inset = 6.f;
+			const FVector O = Origin + Normal * Inset;
+			const FVector Up(0.f, 0.f, 1.f);
+			for (float T = 0.f; T <= Length + 1.f; T += Pitch)
+			{
+				const FVector P = O + Dir * FMath::Clamp(T, 0.f, Length);
+				Quad(P, P + Dir * Band, P + Up * Top, P + Dir * Band + Up * Top, Normal);
+			}
+			for (float Z = Band; Z < Top; Z += 36.f)
+			{
+				const FVector P = O + Up * Z;
+				Quad(P, P + Dir * Length, P + Up * Band, P + Dir * Length + Up * Band, Normal);
+			}
+		};
+		WallLines(FVector(-Half.X, Half.Y, 0.f), FVector(Half.X * 2.f, 0.f, 0.f), FVector(0.f, -1.f, 0.f), Half.X * 2.f);
+		WallLines(FVector(-Half.X, -Half.Y, 0.f), FVector(Half.X * 2.f, 0.f, 0.f), FVector(0.f, 1.f, 0.f), Half.X * 2.f);
+		WallLines(FVector(Half.X, -Half.Y, 0.f), FVector(0.f, Half.Y * 2.f, 0.f), FVector(-1.f, 0.f, 0.f), Half.Y * 2.f);
+		WallLines(FVector(-Half.X, -Half.Y, 0.f), FVector(0.f, Half.Y * 2.f, 0.f), FVector(1.f, 0.f, 0.f), Half.Y * 2.f);
+
+		if (Face.Vertices.Num() > 0 && PlaceholderMaterial)
+		{
+			Terrain->CreateMeshSection_LinearColor(12, Face.Vertices, Face.Triangles, Face.Normals, Face.UVs, Face.Colors, Face.Tangents, false);
+			Terrain->SetMaterial(12, PlaceholderMaterial);
+			if (UMaterialInstanceDynamic* MID = Terrain->CreateAndSetMaterialInstanceDynamic(12))
+			{
+				MID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.0f, 0.72f, 1.0f));
+			}
+		}
 	}
 }
 

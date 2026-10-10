@@ -142,6 +142,8 @@ void UNeonMovementComponent::ResetSimulation(const FVector& WorldLocation, float
 	bLastJumpInput = false;
 	bAirborne = false;
 	VerticalVelocity = 0.f;
+	PhaseBoostMultiplier = 1.f;
+	PhaseBoostTicks = 0;
 	PeakClimbVz = 0.f;
 	TimeSinceClimb = 1.f;
 	SimZ = WorldLocation.Z;
@@ -165,6 +167,14 @@ void UNeonMovementComponent::ResetSimulation(const FVector& WorldLocation, float
 	{
 		Owner->SetActorLocationAndRotation(WorldLocation, FRotator(0.f, SimHeading, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
 	}
+}
+
+void UNeonMovementComponent::BeginPhaseJump(float UpImpulse, float InSpeedMultiplier, int32 Ticks)
+{
+	bAirborne = true;
+	VerticalVelocity = FMath::Max(VerticalVelocity, UpImpulse);
+	PhaseBoostMultiplier = FMath::Max(InSpeedMultiplier, 1.f);
+	PhaseBoostTicks = FMath::Max(PhaseBoostTicks, FMath::Max(Ticks, 1));
 }
 
 void UNeonMovementComponent::SetFrozen(bool bInFrozen)
@@ -327,6 +337,11 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 	{
 		SpeedMult *= Powerups->GetSpeedMultiplier(); // Boost / Overdrive
 	}
+	if (PhaseBoostTicks > 0)
+	{
+		SpeedMult *= PhaseBoostMultiplier;
+		--PhaseBoostTicks;
+	}
 	CurrentSpeed = FMath::Max(C->BaseSpeed * SpeedMult, C->MinSpeed);
 
 	// Heading.
@@ -420,19 +435,69 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 			}
 			else
 			{
-				SimLayer = Arena->AdvanceLayer(NewPosition, SimLayer);
+				const int32 PreviousLayer = SimLayer;
+				SimLayer = Arena->AdvanceLayer(NewPosition, SimLayer, SimZ);
 				float Floor = 0.f;
-				if (Arena->TryGetFloorHeightOnLayer(NewPosition, SimLayer, Floor))
+				const bool bHasFloor = Arena->TryGetFloorHeightOnLayer(NewPosition, SimLayer, Floor);
+				if (bHasFloor)
 				{
 					Floor += FloorOffset;
+				}
+
+				// A gentle slope is a ride. A drop or a surface far above is not a teleport:
+				// leave the lip on a jump arc and land on whatever the arc actually meets.
+				constexpr float Stick = 70.f;
+				const float Drop = bHasFloor ? FloorHere - Floor : 1.e6f;
+				const float Rise = bHasFloor ? Floor - FloorHere : 0.f;
+				if (bHasFloor && Drop <= Stick && Rise <= Stick)
+				{
 					const float Dist = (NewPosition - SimPosition).Size();
 					VerticalVelocity = Dist > 1.f ? (Floor - FloorHere) / Dist * CurrentSpeed : 0.f;
 					SimZ = Floor;
 				}
-				else
+				else if (!bHasFloor && PreviousLayer != 0)
+				{
+					float Ground = 0.f;
+					if (Arena->TryGetFloorHeightOnLayer(NewPosition, 0, Ground))
+					{
+						Ground += FloorOffset;
+						if (FMath::Abs(Ground - FloorHere) <= Stick)
+						{
+							SimLayer = 0;
+							const float Dist = (NewPosition - SimPosition).Size();
+							VerticalVelocity = Dist > 1.f ? (Ground - FloorHere) / Dist * CurrentSpeed : 0.f;
+							SimZ = Ground;
+						}
+						else
+						{
+							bAirborne = true;
+							VerticalVelocity = FMath::Max(VerticalVelocity, C->JumpImpulse * 0.55f);
+							SimZ = FloorHere;
+						}
+					}
+					else
+					{
+						// Left the upper floor over a hole. Fall, do not hop back onto the deck.
+						bAirborne = true;
+						VerticalVelocity = FMath::Min(VerticalVelocity, -400.f);
+						SimZ = FloorHere;
+					}
+				}
+				else if (!bHasFloor)
 				{
 					bAirborne = true;
-					VerticalVelocity = FMath::Min(VerticalVelocity, 0.f);
+					VerticalVelocity = FMath::Min(VerticalVelocity, -400.f);
+					SimZ = FloorHere;
+				}
+				else
+				{
+					if (Rise > Stick)
+					{
+						SimLayer = PreviousLayer;
+					}
+					bAirborne = true;
+					VerticalVelocity = FMath::Max(VerticalVelocity, C->JumpImpulse * 0.55f);
+					SimZ = FloorHere;
 				}
 			}
 		}
@@ -476,15 +541,22 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 				PeakClimbVz = 0.f;
 				TimeSinceClimb = 1.f;
 			}
-			else if (SimZ < Arena->GetActorLocation().Z - 1600.f)
+			else
 			{
-				SimPosition = NewPosition;
-				PrevSimPosition = NewPosition;
-				PrevSimHeading = SimHeading;
-				PrevSimZ = SimZ;
-				++SimulationTick;
-				Eliminate(ENeonEliminationCause::Boundary);
-				return;
+				float HoleZ = 0.f;
+				const bool bOverHole = !Arena->TryGetFloorHeightOnLayer(NewPosition, 0, HoleZ);
+				const bool bFellOut = SimZ < Arena->GetActorLocation().Z - 1600.f;
+				const bool bInPit = bOverHole && SimZ < Arena->GetActorLocation().Z - 80.f;
+				if (bFellOut || bInPit)
+				{
+					SimPosition = NewPosition;
+					PrevSimPosition = NewPosition;
+					PrevSimHeading = SimHeading;
+					PrevSimZ = SimZ;
+					++SimulationTick;
+					Eliminate(ENeonEliminationCause::Boundary);
+					return;
+				}
 			}
 		}
 	}

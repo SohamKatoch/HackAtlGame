@@ -275,7 +275,14 @@ bool UNeonPowerupComponent::ActivateShield()
 
 bool UNeonPowerupComponent::ActivatePhase()
 {
-	StartTimed(ENeonPowerupType::Phase, SecondsToTicks(GetConfig()->PhaseDuration));
+	const UNeonPowerupConfig* C = GetConfig();
+	const int32 Ticks = SecondsToTicks(C->PhaseDuration);
+	StartTimed(ENeonPowerupType::Phase, Ticks);
+	if (Movement)
+	{
+		const float Up = Movement->GetConfig()->JumpImpulse * 1.15f;
+		Movement->BeginPhaseJump(Up, C->PhaseSpeedMultiplier, Ticks);
+	}
 	return true;
 }
 

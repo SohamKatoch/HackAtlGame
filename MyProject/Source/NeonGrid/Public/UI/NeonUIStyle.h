@@ -7,37 +7,48 @@ class UTextBlock;
 class UButton;
 class UBorder;
 class UWidget;
+class UProgressBar;
+class UEditableTextBox;
 
 /**
- * Small helpers for building the code-defined menu and HUD widgets. Presentation only; a Blueprint
- * subclass of either widget can replace the whole tree (Docs/TECHNICAL_SPEC.md section 2).
- *
- * Buttons and panels use rounded-box Slate brushes with a thin outline so the UI reads as holographic
- * panels over the arena rather than flat rectangles.
+ * Black-and-blue lightbike control system. One palette drives every menu and HUD widget.
+ * Changing Accent / Bright / Highlight retints the whole UI.
  */
 namespace NeonUI
 {
-	// Palette (guide section 64: dark arena, neon accents, subtle holographic UI).
-	inline const FLinearColor Accent(0.10f, 0.90f, 1.00f);
-	inline const FLinearColor Warning(1.00f, 0.45f, 0.10f);
+	// #000000 / #05070A / #07111C / #0A1624 / #008CFF / #00B7FF / #8DDCFF
+	inline const FLinearColor Ink(0.00f, 0.00f, 0.00f, 1.00f);
+	inline const FLinearColor Void(0.020f, 0.027f, 0.039f, 0.92f);
+	inline const FLinearColor Surface(0.027f, 0.067f, 0.110f, 0.88f);
+	inline const FLinearColor Navy(0.039f, 0.086f, 0.141f, 0.94f);
+	inline const FLinearColor Line(0.000f, 0.35f, 0.65f, 0.85f);
+	inline const FLinearColor Accent(0.000f, 0.549f, 1.000f);
+	inline const FLinearColor Bright(0.000f, 0.718f, 1.000f);
+	inline const FLinearColor Highlight(0.553f, 0.863f, 1.000f);
 	inline const FLinearColor Text(0.92f, 0.96f, 1.00f);
-	inline const FLinearColor Dim(0.45f, 0.50f, 0.58f);
-	inline const FLinearColor Panel(0.02f, 0.03f, 0.06f, 0.78f);
-	inline const FLinearColor PanelOutline(0.10f, 0.90f, 1.00f, 0.35f);
-	inline const FLinearColor ButtonIdle(0.06f, 0.09f, 0.16f, 0.95f);
-	inline const FLinearColor ButtonSelected(0.10f, 0.90f, 1.00f, 0.90f);
-	inline const FLinearColor ButtonDisabled(0.04f, 0.05f, 0.08f, 0.6f);
-	inline const FLinearColor LabelOnSelected(0.02f, 0.05f, 0.08f);
+	inline const FLinearColor Dim(0.28f, 0.40f, 0.50f);
+	inline const FLinearColor Warning(0.000f, 0.718f, 1.000f); // alerts stay in-system blue
+	inline const FLinearColor Panel(0.027f, 0.067f, 0.110f, 0.90f);
+	inline const FLinearColor PanelOutline(0.000f, 0.549f, 1.000f, 0.85f);
+	inline const FLinearColor ButtonIdle(0.000f, 0.000f, 0.000f, 0.0f);
+	inline const FLinearColor ButtonSelected(0.027f, 0.067f, 0.110f, 0.55f);
+	inline const FLinearColor ButtonDisabled(0.00f, 0.00f, 0.00f, 0.0f);
+	inline const FLinearColor LabelOnSelected(0.553f, 0.863f, 1.000f);
 
 	NEONGRID_API UTextBlock* MakeText(UWidgetTree* Tree, const FText& Text, int32 Size, const FLinearColor& Color, bool bBold = true);
+	NEONGRID_API UTextBlock* MakeCaps(UWidgetTree* Tree, const FText& Text, int32 Size, const FLinearColor& Color, int32 Tracking = 2);
+	NEONGRID_API UTextBlock* MakeDisplay(UWidgetTree* Tree, const FText& Text, int32 Size, const FLinearColor& Color, int32 Tracking = 1);
+	NEONGRID_API UWidget* MakeRule(UWidgetTree* Tree, const FLinearColor& Color, float Thickness = 1.f);
 
-	/** Button with a centered text label. Caller binds OnClicked. */
+	/** Angular text row. No fat rounded slab. */
 	NEONGRID_API UButton* MakeButton(UWidgetTree* Tree, const FText& Label, int32 Size, UTextBlock** OutLabel = nullptr);
 
-	/** Rounded translucent panel with an accent outline. Caller adds one child. */
-	NEONGRID_API UBorder* MakePanel(UWidgetTree* Tree, const FMargin& Padding, float Radius = 10.f);
+	/** Dark-blue panel, 1 px electric edge, square corners. */
+	NEONGRID_API UBorder* MakePanel(UWidgetTree* Tree, const FMargin& Padding, float Radius = 0.f);
 
-	/** Small filled square used as a player color swatch. */
+	NEONGRID_API void StyleMeter(UProgressBar* Bar);
+	NEONGRID_API void StyleAddressBox(UEditableTextBox* Box);
+
 	NEONGRID_API UWidget* MakeSwatch(UWidgetTree* Tree, const FLinearColor& Color, float Size = 16.f);
 	NEONGRID_API void SetSwatchColor(UWidget* Swatch, const FLinearColor& Color);
 

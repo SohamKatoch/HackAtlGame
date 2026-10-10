@@ -40,7 +40,25 @@ void UNeonMainMenuWidget::NativeConstruct()
 	Super::NativeConstruct();
 	LoadSettings();
 	RefreshSelection();
-	ShowMainPage();
+	const UWorld* World = GetWorld();
+	const ENetMode Mode = World ? World->GetNetMode() : NM_Standalone;
+	if (Mode == NM_ListenServer || Mode == NM_Client)
+	{
+		ShowLanPage();
+	}
+	else
+	{
+		ShowMainPage();
+	}
+}
+
+void UNeonMainMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+	if (Pages && Pages->GetActiveWidgetIndex() == 2)
+	{
+		RefreshLanPage();
+	}
 }
 
 namespace
@@ -53,19 +71,52 @@ namespace
 		return S;
 	}
 
+	// Section label in condensed caps with a short accent rule beside it.
+	UWidget* MakeSectionLabel(UWidgetTree* Tree, const FText& Label)
+	{
+		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+		UTextBlock* Caps = NeonUI::MakeCaps(Tree, Label, 15, NeonUI::Accent, 4);
+		Row->AddChildToHorizontalBox(Caps)->SetVerticalAlignment(VAlign_Center);
+		UHorizontalBoxSlot* RuleSlot = Row->AddChildToHorizontalBox(NeonUI::MakeRule(Tree, FLinearColor(NeonUI::Accent.R, NeonUI::Accent.G, NeonUI::Accent.B, 0.35f), 1.f));
+		RuleSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		RuleSlot->SetVerticalAlignment(VAlign_Center);
+		RuleSlot->SetPadding(FMargin(12.f, 0.f, 0.f, 0.f));
+		return Row;
+	}
+
 	UHorizontalBox* MakeOptionRow(UWidgetTree* Tree, UVerticalBox* Parent, const FText& Label)
 	{
-		AddRow(Parent, NeonUI::MakeText(Tree, Label, 20, NeonUI::Dim), 22.f);
+		AddRow(Parent, MakeSectionLabel(Tree, Label), 22.f)->SetHorizontalAlignment(HAlign_Fill);
 		UHorizontalBox* Row = Tree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
-		AddRow(Parent, Row, 6.f);
+		AddRow(Parent, Row, 8.f)->SetHorizontalAlignment(HAlign_Fill);
 		return Row;
 	}
 
 	UButton* AddOption(UWidgetTree* Tree, UHorizontalBox* Row, const FText& Label)
 	{
-		UButton* B = NeonUI::MakeButton(Tree, Label, 22);
-		Row->AddChildToHorizontalBox(B)->SetPadding(FMargin(6.f, 0.f));
+		UButton* B = NeonUI::MakeButton(Tree, Label, 18);
+		UHorizontalBoxSlot* S = Row->AddChildToHorizontalBox(B);
+		S->SetPadding(FMargin(0.f, 0.f, 8.f, 0.f));
+		S->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		S->SetHorizontalAlignment(HAlign_Fill);
 		return B;
+	}
+
+	// Page heading: heavy display face over a full-width accent rule.
+	void AddPageTitle(UWidgetTree* Tree, UVerticalBox* Page, const FText& Title)
+	{
+		UTextBlock* Heading = NeonUI::MakeDisplay(Tree, Title, 32, NeonUI::Text, 2);
+		Heading->SetJustification(ETextJustify::Left);
+		AddRow(Page, Heading, 0.f)->SetHorizontalAlignment(HAlign_Left);
+		AddRow(Page, NeonUI::MakeRule(Tree, NeonUI::Accent, 2.f), 8.f)->SetHorizontalAlignment(HAlign_Fill);
+	}
+
+	UTextBlock* MakeHint(UWidgetTree* Tree, const FText& Hint)
+	{
+		UTextBlock* T = NeonUI::MakeCaps(Tree, Hint, 12, NeonUI::Dim, 1);
+		T->SetAutoWrapText(true);
+		T->SetJustification(ETextJustify::Left);
+		return T;
 	}
 }
 
@@ -74,29 +125,36 @@ void UNeonMainMenuWidget::BuildTree()
 	UCanvasPanel* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("Root"));
 	WidgetTree->RootWidget = Canvas;
 
-	// Floating rounded panel on the left third of the screen, leaving the arena visible behind.
-	UBorder* Panel = NeonUI::MakePanel(WidgetTree, FMargin(56.f, 44.f), 16.f);
+	// Console panel on the left third of the screen, leaving the arena visible behind.
+	UBorder* Panel = NeonUI::MakePanel(WidgetTree, FMargin(48.f, 40.f), 0.f);
 	Panel->SetHorizontalAlignment(HAlign_Fill);
 	Panel->SetVerticalAlignment(VAlign_Center);
 	{
 		UCanvasPanelSlot* S = Canvas->AddChildToCanvas(Panel);
 		S->SetAnchors(FAnchors(0.f, 0.f, 0.f, 1.f));
 		S->SetAlignment(FVector2D(0.f, 0.f));
-		S->SetOffsets(FMargin(40.f, 40.f, 600.f, 40.f)); // left, top, width, bottom
+		S->SetOffsets(FMargin(40.f, 40.f, 620.f, 40.f)); // left, top, width, bottom
 	}
 
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Panel->AddChild(Column);
 
-	AddRow(Column, NeonUI::MakeText(WidgetTree, LOCTEXT("Title", "NEON GRID"), 72, NeonUI::Accent), 0.f);
-	AddRow(Column, NeonUI::MakeText(WidgetTree, LOCTEXT("Subtitle", "LIGHT CYCLE ARENA"), 16, NeonUI::Dim), 2.f);
+	// Header: system line, title, subtitle, rule.
+	AddRow(Column, NeonUI::MakeCaps(WidgetTree, LOCTEXT("SysLine", "SYSTEM   //   ONLINE"), 12, NeonUI::Line, 6), 0.f)->SetHorizontalAlignment(HAlign_Left);
+	{
+		UTextBlock* Title = NeonUI::MakeDisplay(WidgetTree, LOCTEXT("Title", "LIGHTBIKE"), 56, NeonUI::Highlight, 6);
+		Title->SetJustification(ETextJustify::Left);
+		AddRow(Column, Title, 8.f)->SetHorizontalAlignment(HAlign_Left);
+	}
+	AddRow(Column, NeonUI::MakeCaps(WidgetTree, LOCTEXT("Subtitle", "NEON GRID"), 14, NeonUI::Accent, 8), 2.f)->SetHorizontalAlignment(HAlign_Left);
+	AddRow(Column, NeonUI::MakeRule(WidgetTree, NeonUI::Line, 1.f), 16.f)->SetHorizontalAlignment(HAlign_Fill);
 
 	Pages = WidgetTree->ConstructWidget<UWidgetSwitcher>(UWidgetSwitcher::StaticClass());
-	AddRow(Column, Pages, 36.f);
+	AddRow(Column, Pages, 28.f)->SetHorizontalAlignment(HAlign_Fill);
 
 	// Version footer pinned to the bottom-left corner of the screen.
 	{
-		UTextBlock* Version = NeonUI::MakeText(WidgetTree, LOCTEXT("Version", "NEON GRID  pre-alpha  \u00B7  Milestone 6"), 13, NeonUI::Dim, false);
+		UTextBlock* Version = NeonUI::MakeCaps(WidgetTree, LOCTEXT("Version", "SYS.NG   //   GRID LINK   //   UE 5.8"), 12, NeonUI::Dim, 3);
 		UCanvasPanelSlot* S = Canvas->AddChildToCanvas(Version);
 		S->SetAnchors(FAnchors(0.f, 1.f));
 		S->SetAlignment(FVector2D(0.f, 1.f));
@@ -108,97 +166,125 @@ void UNeonMainMenuWidget::BuildTree()
 	UVerticalBox* Main = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Pages->AddChild(Main);
 
+	AddRow(Main, MakeSectionLabel(WidgetTree, LOCTEXT("MainSection", "SELECT")), 0.f)->SetHorizontalAlignment(HAlign_Fill);
+
 	auto MainButton = [&](const FText& Label, UTextBlock** OutLabel = nullptr)
 	{
-		UButton* B = NeonUI::MakeButton(WidgetTree, Label, 28, OutLabel);
-		AddRow(Main, B, 14.f)->SetHorizontalAlignment(HAlign_Fill);
+		UButton* B = NeonUI::MakeButton(WidgetTree, Label, 24, OutLabel);
+		AddRow(Main, B, 12.f)->SetHorizontalAlignment(HAlign_Fill);
 		return B;
 	};
 
-	SoloButton = MainButton(LOCTEXT("Solo", "SOLO"));
+	SoloButton = MainButton(LOCTEXT("Solo", "PLAY"));
 
-	LanButton = MainButton(LOCTEXT("Lan", "LAN PLAY"));
+	LanButton = MainButton(LOCTEXT("Lan", "MULTIPLAYER"));
 
 	UTextBlock* OptionsLabel = nullptr;
-	OptionsButton = MainButton(LOCTEXT("Options", "OPTIONS"), &OptionsLabel);
+	OptionsButton = MainButton(LOCTEXT("Options", "CONFIG"), &OptionsLabel);
 	NeonUI::SetButtonEnabled(OptionsButton, OptionsLabel, false);
 
 	UTextBlock* CreditsLabel = nullptr;
-	CreditsButton = MainButton(LOCTEXT("Credits", "CREDITS"), &CreditsLabel);
+	CreditsButton = MainButton(LOCTEXT("Credits", "ARCHIVE"), &CreditsLabel);
 	NeonUI::SetButtonEnabled(CreditsButton, CreditsLabel, false);
 
-	QuitButton = MainButton(LOCTEXT("Quit", "QUIT"));
+	QuitButton = MainButton(LOCTEXT("Quit", "EXIT"));
 
-	AddRow(Main, NeonUI::MakeText(WidgetTree, LOCTEXT("MainHint", "Options and credits arrive later. LAN is host + join by IP."), 14, NeonUI::Dim, false), 24.f);
+	AddRow(Main, MakeHint(WidgetTree, LOCTEXT("MainHint", "CONFIG AND ARCHIVE ARE OFFLINE.  MULTIPLAYER SCANS THE LAN.")), 22.f)->SetHorizontalAlignment(HAlign_Fill);
 
 	// ---- Page 1: solo ----
 	UVerticalBox* Solo = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Pages->AddChild(Solo);
 
-	AddRow(Solo, NeonUI::MakeText(WidgetTree, LOCTEXT("SoloTitle", "SOLO"), 34, NeonUI::Text), 0.f);
+	AddPageTitle(WidgetTree, Solo, LOCTEXT("SoloTitle", "PILOT SETUP"));
 
-	UHorizontalBox* AIRow = MakeOptionRow(WidgetTree, Solo, LOCTEXT("AIPlayers", "AI PLAYERS"));
+	UHorizontalBox* AIRow = MakeOptionRow(WidgetTree, Solo, LOCTEXT("AIPlayers", "RIVALS"));
 	AI1Button = AddOption(WidgetTree, AIRow, FText::AsNumber(1));
 	AI2Button = AddOption(WidgetTree, AIRow, FText::AsNumber(2));
 	AI3Button = AddOption(WidgetTree, AIRow, FText::AsNumber(3));
 
-	UHorizontalBox* DiffRow = MakeOptionRow(WidgetTree, Solo, LOCTEXT("Difficulty", "DIFFICULTY"));
+	UHorizontalBox* DiffRow = MakeOptionRow(WidgetTree, Solo, LOCTEXT("Difficulty", "THREAT"));
 	EasyButton = AddOption(WidgetTree, DiffRow, LOCTEXT("Easy", "EASY"));
 	NormalButton = AddOption(WidgetTree, DiffRow, LOCTEXT("Normal", "NORMAL"));
 	HardButton = AddOption(WidgetTree, DiffRow, LOCTEXT("Hard", "HARD"));
 	ExpertButton = AddOption(WidgetTree, DiffRow, LOCTEXT("Expert", "EXPERT"));
 
-	UHorizontalBox* PowerupRow = MakeOptionRow(WidgetTree, Solo, LOCTEXT("Powerups", "POWERUPS"));
+	UHorizontalBox* PowerupRow = MakeOptionRow(WidgetTree, Solo, LOCTEXT("Powerups", "PROGRAMS"));
 	PowerupsOnButton = AddOption(WidgetTree, PowerupRow, LOCTEXT("On", "ON"));
 	PowerupsOffButton = AddOption(WidgetTree, PowerupRow, LOCTEXT("Off", "OFF"));
 
-	UHorizontalBox* CollapseRow = MakeOptionRow(WidgetTree, Solo, LOCTEXT("Collapse", "CLOSING WALLS"));
+	UHorizontalBox* CollapseRow = MakeOptionRow(WidgetTree, Solo, LOCTEXT("Collapse", "PERIMETER"));
 	CollapseOnButton = AddOption(WidgetTree, CollapseRow, LOCTEXT("On", "ON"));
 	CollapseOffButton = AddOption(WidgetTree, CollapseRow, LOCTEXT("Off", "OFF"));
 
-	AddRow(Solo, NeonUI::MakeText(WidgetTree, LOCTEXT("Arena", "ARENA"), 20, NeonUI::Dim), 22.f);
-	ArenaText = NeonUI::MakeText(WidgetTree, LOCTEXT("TheGrid", "THE GRID"), 18, NeonUI::Text);
+	AddRow(Solo, MakeSectionLabel(WidgetTree, LOCTEXT("Arena", "SECTOR")), 22.f)->SetHorizontalAlignment(HAlign_Fill);
+	ArenaText = NeonUI::MakeCaps(WidgetTree, LOCTEXT("TheGrid", "THE GRID"), 20, NeonUI::Text, 4);
 	ArenaText->SetAutoWrapText(true);
-	AddRow(Solo, ArenaText, 6.f);
+	ArenaText->SetJustification(ETextJustify::Left);
+	AddRow(Solo, ArenaText, 8.f)->SetHorizontalAlignment(HAlign_Left);
 
-	StartButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Start", "START"), 30);
+	StartButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Start", "ENGAGE"), 26);
 	NeonUI::SetButtonSelected(StartButton, true);
-	AddRow(Solo, StartButton, 36.f)->SetHorizontalAlignment(HAlign_Fill);
+	AddRow(Solo, StartButton, 32.f)->SetHorizontalAlignment(HAlign_Fill);
 
-	BackButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Back", "BACK"), 22);
-	AddRow(Solo, BackButton, 12.f)->SetHorizontalAlignment(HAlign_Fill);
+	BackButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Back", "RETURN"), 18);
+	AddRow(Solo, BackButton, 10.f)->SetHorizontalAlignment(HAlign_Fill);
 
-	UTextBlock* Controls = NeonUI::MakeText(WidgetTree, LOCTEXT("Controls", "A / D or Left / Right to steer.  Space uses a powerup.\nAfter you are out, the camera follows a living bike.  A / D switches.  Esc returns here."), 14, NeonUI::Dim, false);
-	Controls->SetAutoWrapText(true);
-	AddRow(Solo, Controls, 24.f);
+	AddRow(Solo, MakeHint(WidgetTree, LOCTEXT("Controls", "A D  STEER     SHIFT  BOOST     CTRL  JUMP     SPACE  PROGRAM     ESC  ABORT\nDEREZ: CAMERA LOCKS A LIVE CYCLE.  A D CYCLES TARGETS.")), 22.f)->SetHorizontalAlignment(HAlign_Fill);
 
 	// ---- Page 2: LAN ----
 	UVerticalBox* Lan = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
 	Pages->AddChild(Lan);
 
-	AddRow(Lan, NeonUI::MakeText(WidgetTree, LOCTEXT("LanTitle", "LAN PLAY"), 34, NeonUI::Text), 0.f);
-	UTextBlock* LanHint = NeonUI::MakeText(WidgetTree, LOCTEXT("LanHint", "Host opens this match for the local network. Friends join with your IPv4 address. Windows Firewall must allow NeonGrid / UnrealEditor on private networks. Same Unreal 5.8 build on every PC."), 14, NeonUI::Dim, false);
-	LanHint->SetAutoWrapText(true);
-	AddRow(Lan, LanHint, 12.f);
+	AddPageTitle(WidgetTree, Lan, LOCTEXT("LanTitle", "LOCAL LINK"));
+	AddRow(Lan, MakeHint(WidgetTree, LOCTEXT("LanHint", "OPEN LINK ADVERTISES THIS GRID ON THE LAN.  SCAN TO SEE HOSTS.  NODE ADDRESS IS THE FALLBACK.  SAME 5.8 BUILD.  ALLOW THE EDITOR ON PRIVATE NETWORKS.")), 12.f)->SetHorizontalAlignment(HAlign_Fill);
 
-	LanHostButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Host", "HOST"), 28);
-	AddRow(Lan, LanHostButton, 28.f)->SetHorizontalAlignment(HAlign_Fill);
+	AddRow(Lan, MakeSectionLabel(WidgetTree, LOCTEXT("HostSection", "HOST")), 22.f)->SetHorizontalAlignment(HAlign_Fill);
+	LanHostButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Host", "OPEN LINK"), 22);
+	AddRow(Lan, LanHostButton, 8.f)->SetHorizontalAlignment(HAlign_Fill);
 
-	AddRow(Lan, NeonUI::MakeText(WidgetTree, LOCTEXT("JoinAddress", "HOST ADDRESS"), 20, NeonUI::Dim), 22.f);
+	AddRow(Lan, MakeSectionLabel(WidgetTree, LOCTEXT("ScanSection", "NETWORK GAMES")), 20.f)->SetHorizontalAlignment(HAlign_Fill);
+	LanScanButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Scan", "SCAN NETWORK"), 20);
+	AddRow(Lan, LanScanButton, 8.f)->SetHorizontalAlignment(HAlign_Fill);
+
+	for (int32 i = 0; i < 4; ++i)
+	{
+		UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass());
+		UTextBlock* Label = NeonUI::MakeCaps(WidgetTree, FText::GetEmpty(), 14, NeonUI::Text, 1);
+		Label->SetJustification(ETextJustify::Left);
+		{
+			UHorizontalBoxSlot* S = Row->AddChildToHorizontalBox(Label);
+			S->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			S->SetVerticalAlignment(VAlign_Center);
+		}
+		UButton* Join = NeonUI::MakeButton(WidgetTree, LOCTEXT("JoinGame", "JOIN"), 14);
+		Row->AddChildToHorizontalBox(Join)->SetVerticalAlignment(VAlign_Center);
+		Row->SetVisibility(ESlateVisibility::Collapsed);
+		AddRow(Lan, Row, 6.f)->SetHorizontalAlignment(HAlign_Fill);
+		LanGameRows.Add(Row);
+		LanGameLabels.Add(Label);
+		LanGameJoinButtons.Add(Join);
+	}
+
+	AddRow(Lan, MakeSectionLabel(WidgetTree, LOCTEXT("JoinAddress", "NODE ADDRESS")), 20.f)->SetHorizontalAlignment(HAlign_Fill);
 	LanAddressBox = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass());
 	LanAddressBox->SetHintText(LOCTEXT("IpHint", "192.168.1.10"));
 	LanAddressBox->SetJustification(ETextJustify::Center);
-	AddRow(Lan, LanAddressBox, 6.f)->SetHorizontalAlignment(HAlign_Fill);
+	NeonUI::StyleAddressBox(LanAddressBox);
+	AddRow(Lan, LanAddressBox, 8.f)->SetHorizontalAlignment(HAlign_Fill);
 
-	LanJoinButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Join", "JOIN"), 26);
-	AddRow(Lan, LanJoinButton, 14.f)->SetHorizontalAlignment(HAlign_Fill);
+	LanJoinButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Join", "CONNECT BY ADDRESS"), 18);
+	AddRow(Lan, LanJoinButton, 8.f)->SetHorizontalAlignment(HAlign_Fill);
 
-	LanStatusText = NeonUI::MakeText(WidgetTree, FText::GetEmpty(), 14, NeonUI::Warning, false);
+	LanStatusText = NeonUI::MakeCaps(WidgetTree, FText::GetEmpty(), 14, NeonUI::Accent, 2);
 	LanStatusText->SetAutoWrapText(true);
-	AddRow(Lan, LanStatusText, 10.f);
+	AddRow(Lan, LanStatusText, 10.f)->SetHorizontalAlignment(HAlign_Fill);
 
-	LanBackButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Back", "BACK"), 22);
-	AddRow(Lan, LanBackButton, 18.f)->SetHorizontalAlignment(HAlign_Fill);
+	LanEngageButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("LanEngage", "ENGAGE"), 22);
+	NeonUI::SetButtonSelected(LanEngageButton, true);
+	AddRow(Lan, LanEngageButton, 16.f)->SetHorizontalAlignment(HAlign_Fill);
+
+	LanBackButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("BackLan", "RETURN"), 18);
+	AddRow(Lan, LanBackButton, 8.f)->SetHorizontalAlignment(HAlign_Fill);
 }
 
 void UNeonMainMenuWidget::BindButtons()
@@ -227,8 +313,14 @@ void UNeonMainMenuWidget::BindButtons()
 	if (CollapseOffButton) { CollapseOffButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnCollapseOffClicked); }
 	if (LanButton)      { LanButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanClicked); }
 	if (LanHostButton)  { LanHostButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanHostClicked); }
+	if (LanScanButton)  { LanScanButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanScanClicked); }
 	if (LanJoinButton)  { LanJoinButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanJoinClicked); }
+	if (LanEngageButton){ LanEngageButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanEngageClicked); }
 	if (LanBackButton)  { LanBackButton->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnLanBackClicked); }
+	if (LanGameJoinButtons.IsValidIndex(0) && LanGameJoinButtons[0]) { LanGameJoinButtons[0]->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnJoinFound0); }
+	if (LanGameJoinButtons.IsValidIndex(1) && LanGameJoinButtons[1]) { LanGameJoinButtons[1]->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnJoinFound1); }
+	if (LanGameJoinButtons.IsValidIndex(2) && LanGameJoinButtons[2]) { LanGameJoinButtons[2]->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnJoinFound2); }
+	if (LanGameJoinButtons.IsValidIndex(3) && LanGameJoinButtons[3]) { LanGameJoinButtons[3]->OnClicked.AddDynamic(this, &UNeonMainMenuWidget::OnJoinFound3); }
 }
 
 // ---------------------------------------------------------------------------
@@ -311,12 +403,86 @@ void UNeonMainMenuWidget::SetCollapseEnabled(bool bEnabled)
 	RefreshSelection();
 }
 
-void UNeonMainMenuWidget::OnLanClicked()
+void UNeonMainMenuWidget::ShowLanPage()
 {
 	if (Pages)
 	{
 		Pages->SetActiveWidgetIndex(2);
 	}
+	if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(GetOwningPlayer()))
+	{
+		const UWorld* World = GetWorld();
+		if (World && World->GetNetMode() == NM_Standalone)
+		{
+			PC->RequestFindLan();
+		}
+	}
+	RefreshLanPage();
+}
+
+void UNeonMainMenuWidget::RefreshLanPage()
+{
+	const UNeonGameInstance* GI = GetGameInstance<UNeonGameInstance>();
+	const UWorld* World = GetWorld();
+	const ENetMode Mode = World ? World->GetNetMode() : NM_Standalone;
+	const bool bHost = Mode == NM_ListenServer || (GI && GI->IsHostingLan());
+	const bool bClient = Mode == NM_Client;
+
+	if (LanStatusText && GI)
+	{
+		FText Status = GI->GetLanStatus();
+		if (Status.IsEmpty())
+		{
+			if (bHost)
+			{
+				Status = FText::Format(LOCTEXT("HostIdle", "LINK OPEN.  {0} PILOT{1} IN THE GRID."),
+					World ? World->GetNumPlayerControllers() : 1,
+					(World && World->GetNumPlayerControllers() == 1) ? FText::GetEmpty() : FText::FromString(TEXT("S")));
+			}
+			else if (bClient)
+			{
+				Status = LOCTEXT("ClientWait", "LINKED.  WAITING FOR HOST TO ENGAGE.");
+			}
+		}
+		LanStatusText->SetText(Status);
+		LanStatusText->SetColorAndOpacity(FSlateColor(GI->IsSearchingLan() ? NeonUI::Accent : NeonUI::Text));
+	}
+
+	if (LanHostButton)
+	{
+		LanHostButton->SetVisibility(bClient ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+	}
+	if (LanEngageButton)
+	{
+		LanEngageButton->SetVisibility(bHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+	if (LanScanButton)
+	{
+		LanScanButton->SetVisibility((bHost || bClient) ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+	}
+
+	const TArray<FNeonLanGame>& Games = GI ? GI->GetLanGames() : TArray<FNeonLanGame>();
+	for (int32 i = 0; i < LanGameRows.Num(); ++i)
+	{
+		UWidget* Row = LanGameRows[i];
+		if (!Row)
+		{
+			continue;
+		}
+		const bool bShow = !bHost && !bClient && Games.IsValidIndex(i);
+		Row->SetVisibility(bShow ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		if (bShow && LanGameLabels.IsValidIndex(i) && LanGameLabels[i])
+		{
+			const FNeonLanGame& G = Games[i];
+			LanGameLabels[i]->SetText(FText::FromString(FString::Printf(TEXT("%s    %d/%d    %d MS"),
+				*G.HostName, G.Players, FMath::Max(G.MaxPlayers, 1), G.PingMs)));
+		}
+	}
+}
+
+void UNeonMainMenuWidget::OnLanClicked()
+{
+	ShowLanPage();
 }
 
 void UNeonMainMenuWidget::OnLanBackClicked()
@@ -328,13 +494,43 @@ void UNeonMainMenuWidget::OnLanHostClicked()
 {
 	if (LanStatusText)
 	{
-		LanStatusText->SetText(LOCTEXT("Hosting", "Opening listen server..."));
+		LanStatusText->SetText(LOCTEXT("Hosting", "OPENING LINK..."));
 	}
 	if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(GetOwningPlayer()))
 	{
 		PC->RequestHostLan();
 	}
 }
+
+void UNeonMainMenuWidget::OnLanScanClicked()
+{
+	if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(GetOwningPlayer()))
+	{
+		PC->RequestFindLan();
+	}
+}
+
+void UNeonMainMenuWidget::OnLanEngageClicked()
+{
+	SaveSettings();
+	if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(GetOwningPlayer()))
+	{
+		PC->RequestStartLanMatch(Settings);
+	}
+}
+
+void UNeonMainMenuWidget::JoinFound(int32 Index)
+{
+	if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(GetOwningPlayer()))
+	{
+		PC->RequestJoinLanGame(Index);
+	}
+}
+
+void UNeonMainMenuWidget::OnJoinFound0() { JoinFound(0); }
+void UNeonMainMenuWidget::OnJoinFound1() { JoinFound(1); }
+void UNeonMainMenuWidget::OnJoinFound2() { JoinFound(2); }
+void UNeonMainMenuWidget::OnJoinFound3() { JoinFound(3); }
 
 void UNeonMainMenuWidget::OnLanJoinClicked()
 {
@@ -343,7 +539,7 @@ void UNeonMainMenuWidget::OnLanJoinClicked()
 	{
 		if (LanStatusText)
 		{
-			LanStatusText->SetText(LOCTEXT("NeedIp", "Type the host IPv4 address."));
+			LanStatusText->SetText(LOCTEXT("NeedIp", "ENTER THE HOST IPV4 ADDRESS."));
 		}
 		return;
 	}
@@ -353,7 +549,7 @@ void UNeonMainMenuWidget::OnLanJoinClicked()
 	}
 	if (LanStatusText)
 	{
-		LanStatusText->SetText(FText::Format(LOCTEXT("Joining", "Joining {0}..."), FText::FromString(Address)));
+		LanStatusText->SetText(FText::Format(LOCTEXT("Joining", "LINKING TO {0}..."), FText::FromString(Address)));
 	}
 	if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(GetOwningPlayer()))
 	{
