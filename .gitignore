@@ -1,0 +1,31 @@
+# Unreal Engine generated and local-only files.
+# The packaged game (Packaged/) is a shareable zip, not source, and is too large for GitHub.
+
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+Packaged/
+
+.vs/
+.vscode/
+.idea/
+*.VC.db
+*.opensdf
+*.opendb
+*.sdf
+*.sln
+*.suo
+*.xcworkspace
+*.xcodeproj
+
+*.pdb
+*.exp
+*.lib
+
+MyProject/Config/DefaultEditorPerProjectUserSettings.ini
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
