@@ -560,8 +560,9 @@ void ANeonGameMode::BeginCountdown()
 	if (Arena)
 	{
 		// A placed arena can still be carrying the old 8s / 40s collapse and the cliff lip.
-		Arena->CollapseStartDelay = 25.f;
-		Arena->CollapseDuration = 120.f;
+		// 12 s / 60 s keeps rounds tight on the smaller arena (BP_NeonArena).
+		Arena->CollapseStartDelay = 12.f;
+		Arena->CollapseDuration = 60.f;
 		Arena->LaunchRampHeight = 420.f;
 		Arena->LaunchRampLength = 2800.f;
 		Arena->LaunchRampHalfWidth = 1200.f;
