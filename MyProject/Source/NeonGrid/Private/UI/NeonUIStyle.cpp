@@ -8,6 +8,7 @@
 #include "Components/ProgressBar.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
+#include "Sound/SoundBase.h"
 #include "Styling/CoreStyle.h"
 #include "Styling/SlateTypes.h"
 
@@ -16,6 +17,17 @@ namespace NeonUI
 	namespace
 	{
 		constexpr float ButtonRadius = 0.f;
+
+		/** ElevenLabs UI sounds. The button style holds the reference, so the loaded asset stays alive. */
+		FSlateSound MakeUISound(const TCHAR* Path)
+		{
+			FSlateSound Sound;
+			if (USoundBase* Asset = LoadObject<USoundBase>(nullptr, Path))
+			{
+				Sound.SetResourceObject(Asset);
+			}
+			return Sound;
+		}
 
 		FButtonStyle MakeButtonStyle(const FLinearColor& Fill, const FLinearColor& Outline, float Edge = 1.f)
 		{
@@ -26,6 +38,8 @@ namespace NeonUI
 			Style.SetDisabled(FSlateRoundedBoxBrush(Ink, ButtonRadius, FLinearColor(Line.R, Line.G, Line.B, 0.25f), 1.f));
 			Style.SetNormalPadding(FMargin(0.f));
 			Style.SetPressedPadding(FMargin(0.f));
+			Style.SetHoveredSound(MakeUISound(TEXT("/Game/NwiroAssets/Audio/sfx/Futuristic_UI_hover_blip_soft_short_high.Futuristic_UI_hover_blip_soft_short_high")));
+			Style.SetPressedSound(MakeUISound(TEXT("/Game/NwiroAssets/Audio/sfx/Futuristic_UI_button_click_confirm_crisp.Futuristic_UI_button_click_confirm_crisp")));
 			return Style;
 		}
 
