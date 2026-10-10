@@ -51,10 +51,9 @@ private:
 	void HandleSegmentExtended(int32 SegmentIndex);
 	void HandleSegmentRemoved(int32 SegmentIndex);
 	void HandleTrailsCleared();
-	/** Add or update the chunk instances so they cover the segment A->B. */
-	void SyncSegmentChunks(int32 SegmentIndex, const FVector2D& A, const FVector2D& B);
-	FTransform MakeChunkTransform(const FVector2D& A, const FVector2D& B) const;
-	float FloorHeightAt(const FVector2D& P) const;
+	/** Add or update the chunk instances so they cover the segment A->B at the stored heights. */
+	void SyncSegmentChunks(int32 SegmentIndex, const FVector2D& A, const FVector2D& B, float ZA, float ZB);
+	FTransform MakeChunkTransform(const FVector2D& A, const FVector2D& B, float ZA, float ZB) const;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UNeonCollisionSystem> Collision;

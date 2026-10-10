@@ -255,13 +255,22 @@ The LAN menu Host reloads `L_TheGrid` with `?listen`. Join travels to a typed IP
 
 ## D29 — Sprint, jump, and real air
 
-**Status:** Accepted (playtest: "not chaotic enough"; ramps should throw the bike; a recharging sprint the AI also spends)
+**Status:** Accepted (playtest: "not chaotic enough"; ramps are hills you ride; a recharging sprint the AI also spends)
 
 D25 stays the floor function. It is no longer presentation-only.
 
 - **Sprint** is a meter on `UNeonMovementComponent`, not a powerup. Left Shift (left bumper) only fires when the bar is full. That press empties the bar and grants 0.85 s at ×1.85 speed and ×0.55 turn rate, stacking with Boost. Releasing early does not refund it. The bar refills at 0.045/s (~22 s). The AI spends it on an open straight or a real cut, not on every cruise.
 - **Jump** is a second meter. Left Ctrl, F, or right bumper, and only when the bar is full. One hop empties it (1050 cm/s up). Refill is the same 0.045/s. A press in the air is buffered to landing. The AI spends it when a plan just became lethal.
-- **Air** integrates `SimZ` and vertical velocity under gravity 2400. The laser keeps drawing on the floor through the jump; air only ignores trail hits until landing. Bikes still die on the boundary. Vehicle hits require the two centers to be within 180 cm on Z, so a hop clears a bike. Landing on a trail is lethal. Pitch in the air follows the arc; on the ground it still follows the floor normal.
-- **Launch ramps:** four wedges on `ANeonArena` (steep climb, short lip, cyan chevrons). Climbing stores upward speed. If that speed reached 820 cm/s and the floor then drops steeper than -0.2, the bike leaves the floor with 90% of it. Cruise on the gentle pyramid (peak climb ~650) stays glued. Sprinting off a tier, and every authored ramp, launches.
+- **Air** integrates `SimZ` and vertical velocity under gravity 2400. The laser is stored with that Z and drawn along it, so a jump leaves a wall in the air. A hit requires the bike center to be within 90 cm of the laser's height; a hop clears a wall below, and a ground bike drives under a wall above. Bikes still die on the boundary. Vehicle hits require the two centers to be within 180 cm on Z. Pitch in the air follows the arc; on the ground it still follows the floor normal.
+- **Ramps:** hills and stacked-deck connectors on `ANeonArena` (cyan chevrons). The bike stays on the surface. Driving a ramp the wrong way, or slamming a higher deck's rim, is a wall. Jump is the only way off the floor. Rounds cycle four layouts: The Grid, The Cross, The Corners, The Hex (four stacked hexagon decks).
 - **AI** spends sprint only on an open straight or a cut, and only plans the fast line while that bar is full. It spends jump when a plan just became lethal. A pickup inside about 26 m outweighs a tidy cruise, and chase weight is a step higher at every difficulty so they cut in a little earlier.
-- **HUD:** speed readout (cm/s ÷ 16, so cruise reads about 87), sprint bar bottom left, jump bar bottom right, corner brackets, and a NEON GRID title over the 3-2-1 that fades on GO.
+- **HUD:** sprint bar bottom left, jump bar bottom right, the live map name on the round line, corner brackets, and a NEON GRID title over the 3-2-1 that fades on GO. There is no match clock. Walls wait 25 s, then take 120 s to close.
+
+## D30 — One-way ramps and stacked floors
+
+**Status:** Accepted (playtest: wrong-way ramp should kill; more verticality; a hexagon tower)
+
+- Ramps are one-way. Entering a hill or connector against its chevrons is a wall (`Boundary`). The rim of a higher deck is the same if you hit it at deck height.
+- The Grid, The Cross, and The Corners each have a second floor reached by connector ramps. Driving under that floor on the ground is legal.
+- The Hex is four stacked hexagon decks (ground plus three floors), each smaller, linked by one-way ramps on alternating faces. It is the first layout in the rotation so a match opens on it. Driving off a deck falls; falling out of the world is a wall hit. Jumping into a deck underside is a wall hit.
+- Vehicles track `SimLayer`. Trails still use `SimZ`, so a laser on floor 2 does not kill a bike on the ground.

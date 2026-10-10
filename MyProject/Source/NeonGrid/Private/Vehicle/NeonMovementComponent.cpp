@@ -127,9 +127,11 @@ void UNeonMovementComponent::ResetSimulation(const FVector& WorldLocation, float
 	SimHeading = FRotator::NormalizeAxis(HeadingDegrees);
 	PrevSimHeading = SimHeading;
 	FloorZ = WorldLocation.Z;
+	SimLayer = 0;
 	if (const ANeonArena* Arena = HeightSource.Get())
 	{
-		FloorOffset = WorldLocation.Z - Arena->GetFloorHeight(SimPosition);
+		SimLayer = Arena->ResolveLayerAt(SimPosition, WorldLocation.Z, 0);
+		FloorOffset = WorldLocation.Z - Arena->GetFloorHeightOnLayer(SimPosition, SimLayer);
 	}
 
 	AppliedSteering = 0.f;
@@ -364,32 +366,31 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 		}
 	}
 
-	// Height. Grounded sticks to the floor. A jump, or a lip after a real climb, goes ballistic.
+	// Height. Grounded sticks to the current layer. Wrong-way ramps and deck rims are walls.
 	const bool bWasAirborne = bAirborne;
 	const ANeonArena* Arena = HeightSource.Get();
 	if (Arena)
 	{
-		const float Floor = Arena->GetFloorHeight(NewPosition) + FloorOffset;
-		const float FloorHere = Arena->GetFloorHeight(SimPosition) + FloorOffset;
-		const float Dist = (NewPosition - SimPosition).Size();
-		const float Slope = Dist > 1.f ? (Floor - FloorHere) / Dist : 0.f;
+		if (Arena->IsWrongWayApproach(SimPosition, NewPosition, SimHeading, SimLayer, SimZ))
+		{
+			SimPosition = NewPosition;
+			PrevSimPosition = NewPosition;
+			PrevSimHeading = SimHeading;
+			PrevSimZ = SimZ;
+			++SimulationTick;
+			Eliminate(ENeonEliminationCause::Boundary);
+			return;
+		}
+
+		float FloorHere = SimZ;
+		float SurfaceHere = 0.f;
+		if (Arena->TryGetFloorHeightOnLayer(SimPosition, SimLayer, SurfaceHere))
+		{
+			FloorHere = SurfaceHere + FloorOffset;
+		}
 
 		if (!bAirborne)
 		{
-			if (Slope > 0.08f)
-			{
-				PeakClimbVz = FMath::Max(PeakClimbVz, CurrentSpeed * Slope);
-				TimeSinceClimb = 0.f;
-			}
-			else
-			{
-				TimeSinceClimb += Dt;
-				if (TimeSinceClimb > 0.45f)
-				{
-					PeakClimbVz = 0.f;
-				}
-			}
-
 			if (bJumpLatched && JumpMeter + KINDA_SMALL_NUMBER >= C->JumpCost)
 			{
 				JumpMeter = FMath::Max(0.f, JumpMeter - C->JumpCost);
@@ -398,31 +399,62 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 				SimZ = FloorHere;
 				PeakClimbVz = 0.f;
 			}
-			else if (Slope < C->LaunchDropSlope && PeakClimbVz >= C->LaunchMinUpSpeed)
-			{
-				bAirborne = true;
-				VerticalVelocity = PeakClimbVz * C->LaunchCarry;
-				SimZ = FloorHere;
-				PeakClimbVz = 0.f;
-			}
 			else
 			{
-				SimZ = Floor;
-				VerticalVelocity = CurrentSpeed * Slope;
+				SimLayer = Arena->AdvanceLayer(NewPosition, SimLayer);
+				float Floor = 0.f;
+				if (Arena->TryGetFloorHeightOnLayer(NewPosition, SimLayer, Floor))
+				{
+					Floor += FloorOffset;
+					const float Dist = (NewPosition - SimPosition).Size();
+					VerticalVelocity = Dist > 1.f ? (Floor - FloorHere) / Dist * CurrentSpeed : 0.f;
+					SimZ = Floor;
+				}
+				else
+				{
+					bAirborne = true;
+					VerticalVelocity = FMath::Min(VerticalVelocity, 0.f);
+				}
 			}
 		}
 
 		if (bAirborne)
 		{
+			const float PrevZ = SimZ;
 			VerticalVelocity -= C->Gravity * Dt;
 			SimZ += VerticalVelocity * Dt;
-			if (SimZ <= Floor)
+
+			if (VerticalVelocity > 0.f && Arena->HitsCeiling(NewPosition, PrevZ, SimZ))
 			{
-				SimZ = Floor;
+				SimPosition = NewPosition;
+				PrevSimPosition = NewPosition;
+				PrevSimHeading = SimHeading;
+				PrevSimZ = SimZ;
+				++SimulationTick;
+				Eliminate(ENeonEliminationCause::Boundary);
+				return;
+			}
+
+			const int32 LandLayer = Arena->ResolveLayerAt(NewPosition, SimZ, SimLayer);
+			float LandZ = 0.f;
+			if (Arena->TryGetFloorHeightOnLayer(NewPosition, LandLayer, LandZ) && SimZ <= LandZ + FloorOffset)
+			{
+				SimZ = LandZ + FloorOffset;
 				VerticalVelocity = 0.f;
 				bAirborne = false;
+				SimLayer = LandLayer;
 				PeakClimbVz = 0.f;
 				TimeSinceClimb = 1.f;
+			}
+			else if (SimZ < Arena->GetActorLocation().Z - 400.f)
+			{
+				SimPosition = NewPosition;
+				PrevSimPosition = NewPosition;
+				PrevSimHeading = SimHeading;
+				PrevSimZ = SimZ;
+				++SimulationTick;
+				Eliminate(ENeonEliminationCause::Boundary);
+				return;
 			}
 		}
 	}
@@ -439,9 +471,9 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 		bJumpLatched = false;
 	}
 
-	// Trails are safe while the whole step stays in the air. Landing checks the touchdown segment.
+	// Trails use Z. A laser in the air only kills a bike at that height.
 	ENeonEliminationCause Cause = ENeonEliminationCause::None;
-	if (CheckHazards(SimPosition, NewPosition, bAirborne, Cause))
+	if (CheckHazards(SimPosition, NewPosition, PrevSimZ, SimZ, Cause))
 	{
 		SimPosition = NewPosition;
 		PrevSimPosition = NewPosition;
@@ -455,15 +487,15 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 	SimPosition = NewPosition;
 	++SimulationTick;
 
-	// The wall keeps drawing through a jump. Air only skips trail hits; it does not pause the laser.
+	// The laser follows the vehicle center, including through a jump.
 	if (Trail)
 	{
 		const FVector2D RearPoint = SimPosition - Direction * C->TrailRearOffset;
-		Trail->RecordPosition(RearPoint, SimHeading, SimulationTick);
+		Trail->RecordPosition(RearPoint, SimZ, SimHeading, SimulationTick);
 	}
 }
 
-bool UNeonMovementComponent::CheckHazards(const FVector2D& From, const FVector2D& To, bool bIgnoreTrails, ENeonEliminationCause& OutCause)
+bool UNeonMovementComponent::CheckHazards(const FVector2D& From, const FVector2D& To, float FromZ, float ToZ, ENeonEliminationCause& OutCause)
 {
 	if (!Collision)
 	{
@@ -475,9 +507,9 @@ bool UNeonMovementComponent::CheckHazards(const FVector2D& From, const FVector2D
 
 	FNeonTrailHit Hit;
 	const int32 SelfIgnoreAfterTick = SimulationTick - C->SelfTrailGraceTicks;
-	// Air and Phase ignore trails. A Shield charge absorbs the first hit and grants a few pass-through ticks.
+	// Phase ignores trails. Height does not: a jump misses a laser that is below the bike.
 	const bool bPhased = Powerups && Powerups->IsPhased();
-	if (!bIgnoreTrails && !bPhased && Collision->SweepAgainstTrails(From, To, R, PlayerSlot, SelfIgnoreAfterTick, Hit))
+	if (!bPhased && Collision->SweepAgainstTrails(From, To, R, PlayerSlot, SelfIgnoreAfterTick, Hit, FromZ, ToZ, C->TrailVerticalRadius))
 	{
 		if (!(Powerups && Powerups->TryAbsorbTrailHit()))
 		{
@@ -525,7 +557,7 @@ void UNeonMovementComponent::ApplyInterpolatedTransform(float Alpha)
 	{
 		if (bAlignToFloor)
 		{
-			const FVector N = Arena->GetFloorNormal(Pos);
+			const FVector N = Arena->GetFloorNormalOnLayer(Pos, SimLayer);
 			if (N.Z > KINDA_SMALL_NUMBER)
 			{
 				const float YawRad = FMath::DegreesToRadians(Yaw);
@@ -557,7 +589,7 @@ void UNeonMovementComponent::Eliminate(ENeonEliminationCause Cause)
 	{
 		if (const ANeonArena* Arena = HeightSource.Get())
 		{
-			SimZ = Arena->GetFloorHeight(SimPosition) + FloorOffset;
+			SimZ = Arena->GetFloorHeightOnLayer(SimPosition, SimLayer) + FloorOffset;
 		}
 		PrevSimZ = SimZ;
 		bAirborne = false;

@@ -1,5 +1,6 @@
 #include "AI/NeonAIController.h"
 
+#include "Arena/NeonArena.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerState.h"
 #include "NeonGrid.h"
@@ -640,6 +641,23 @@ bool ANeonAIController::IsStepLethal(const UNeonMovementComponent& M, const FNeo
 		}
 	}
 
+	if (const ANeonArena* Arena = ANeonArena::FindArena(GetWorld()))
+	{
+		const float Heading = FMath::RadiansToDegrees(FMath::Atan2(To.Y - From.Y, To.X - From.X));
+		if (Arena->IsWrongWayApproach(From, To, Heading, M.GetSimLayer(), M.GetSimZ()))
+		{
+			return true;
+		}
+		if (!M.IsAirborne() && !Arena->HasFloorOnLayer(To, M.GetSimLayer()))
+		{
+			const int32 Next = Arena->AdvanceLayer(To, M.GetSimLayer());
+			if (!Arena->HasFloorOnLayer(To, Next))
+			{
+				return true;
+			}
+		}
+	}
+
 	if (!Collision)
 	{
 		return false;
@@ -648,7 +666,8 @@ bool ANeonAIController::IsStepLethal(const UNeonMovementComponent& M, const FNeo
 	// Trails, with the same own-trail grace the real step uses.
 	FNeonTrailHit Hit;
 	const int32 SelfIgnoreAfterTick = M.GetSimulationTick() - M.GetConfig()->SelfTrailGraceTicks;
-	if (Collision->SweepAgainstTrails(From, To, Radius, M.GetPlayerSlot(), SelfIgnoreAfterTick, Hit))
+	if (Collision->SweepAgainstTrails(From, To, Radius, M.GetPlayerSlot(), SelfIgnoreAfterTick, Hit,
+		M.GetSimZ(), M.GetSimZ(), M.GetConfig()->TrailVerticalRadius))
 	{
 		return true;
 	}

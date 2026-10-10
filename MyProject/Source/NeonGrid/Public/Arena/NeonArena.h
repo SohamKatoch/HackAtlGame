@@ -17,10 +17,10 @@ class UMaterialInstanceDynamic;
  * Owns the gameplay rectangle, four inward-facing spawn points, a fixed whole-arena camera, and
  * cosmetic terrain/wall meshes. The meshes have no collision; the movement step uses GetBounds().
  *
- * Terrain (DECISIONS.md D25, D29): a stepped pyramid plus four launch ramps. GetFloorHeight() is
- * still a continuous function of XY. On the ground a vehicle sticks to it. A steep lip (or a jump)
- * leaves the floor; see UNeonMovementComponent. The pyramid tiers stay gentle so cruise speed stays
- * glued. The launch ramps are steep enough to throw a bike.
+ * Terrain (DECISIONS.md D25, D29, D30): a stepped pyramid, one-way ramps, and stacked decks.
+ * GetFloorHeight() is the layer-0 surface. Upper floors are queried with GetFloorHeightOnLayer().
+ * A ramp is rideable only in its authored direction; the other way is a wall. Rounds cycle four
+ * layouts (The Grid, The Cross, The Corners, The Hex). The Hex is four stacked hexagon decks.
  *
  * Collapse (DECISIONS.md D27): the playable rectangle shrinks toward the center during a round.
  * After CollapseStartDelay seconds of play the half extents interpolate linearly from HalfExtents to
@@ -54,13 +54,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Collapse")
 	bool bCollapseEnabled = true;
 
-	/** Seconds of play before the walls start moving. Short so a 4-bike round actually sees them. */
+	/** Seconds of play before the walls start moving. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Collapse", meta = (ClampMin = "0"))
-	float CollapseStartDelay = 8.f;
+	float CollapseStartDelay = 25.f;
 
 	/** Seconds the walls take to move from HalfExtents to MinHalfExtents. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Collapse", meta = (ClampMin = "1"))
-	float CollapseDuration = 40.f;
+	float CollapseDuration = 120.f;
 
 	/** Final half size, cm. Default is roughly the top two tiers of the pyramid. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Collapse", meta = (ClampMin = "100"))
@@ -96,7 +96,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "50"))
 	float RampWidth = 450.f;
 
-	// ---- Launch ramps (D29). Added on top of the pyramid. Steep climb, short lip. ----
+	// ---- Ramps (D29). Added on top of the pyramid. A hill you ride, not a jump. ----
+
+	/** How many authored layouts rounds cycle through. */
+	static constexpr int32 LayoutCount = 4;
+
+	/** Which layout is live. 0 Hex, 1 Grid, 2 Cross, 3 Corners. Rounds advance this. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Neon|Terrain")
+	int32 ActiveLayout = 0;
+
+	bool IsHexLayout() const { return ActiveLayout == 0; }
+
+	/** Rise from one stacked deck to the next, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "200"))
+	float DeckRise = 900.f;
 
 	/** Master switch for the four authored ramps. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain")
@@ -104,21 +117,21 @@ public:
 
 	/** Peak height of each ramp above the local pyramid, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "0"))
-	float LaunchRampHeight = 640.f;
+	float LaunchRampHeight = 420.f;
 
-	/** Length of each ramp along its facing, cm. The last LaunchRampLipFraction of that is the drop. */
+	/** Length of each ramp along its facing, cm. The last LaunchRampLipFraction of that eases back down. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "100"))
-	float LaunchRampLength = 1100.f;
+	float LaunchRampLength = 2800.f;
 
 	/** Half-width of the ramp deck, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "50"))
-	float LaunchRampHalfWidth = 850.f;
+	float LaunchRampHalfWidth = 1200.f;
 
-	/** Fraction of LaunchRampLength that falls back to the floor. That lip is what launches the bike. */
+	/** Fraction of LaunchRampLength that eases back to the floor. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "0.05", ClampMax = "0.5"))
-	float LaunchRampLipFraction = 0.18f;
+	float LaunchRampLipFraction = 0.5f;
 
-	/** Chevron color on the ramp deck so the lip reads from the follow camera. */
+	/** Chevron color on the ramp deck so it reads from the follow camera. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain")
 	FLinearColor LaunchRampColor = FLinearColor(0.15f, 1.0f, 0.75f);
 
@@ -207,15 +220,61 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Neon|Arena")
 	FTransform GetSpawnTransform(int32 PlayerIndex) const;
 
+	/**
+	 * A point inside the grid, clear of Avoid, facing roughly inward.
+	 * Used for AI so they don't start on the same four corners every round.
+	 */
+	FTransform GetRandomSpawnTransform(FRandomStream& Rng, const TArray<FVector2D>& Avoid) const;
+
 	// ---- Terrain queries (presentation) ----
 
-	/** World Z of the floor surface at a world XY. Continuous. Outside the rectangle it clamps to the edge. */
+	/** World Z of the layer-0 floor at a world XY. */
 	UFUNCTION(BlueprintPure, Category = "Neon|Terrain")
 	float GetFloorHeight(FVector2D WorldXY) const;
 
-	/** Unit surface normal at a world XY (finite differences). */
+	/** World Z of a specific deck / ramp layer. Falls back to layer 0 if that layer has no surface here. */
+	float GetFloorHeightOnLayer(FVector2D WorldXY, int32 Layer) const;
+
+	/** True when this XY has a rideable surface on Layer (deck, ramp, or the ground). */
+	bool HasFloorOnLayer(FVector2D WorldXY, int32 Layer) const;
+
+	/** Writes the world Z of the surface on Layer. False when that layer does not exist here. */
+	bool TryGetFloorHeightOnLayer(FVector2D WorldXY, int32 Layer, float& OutWorldZ) const;
+
+	/** Unit surface normal at a world XY on layer 0 (finite differences). */
 	UFUNCTION(BlueprintPure, Category = "Neon|Terrain")
 	FVector GetFloorNormal(FVector2D WorldXY) const;
+
+	FVector GetFloorNormalOnLayer(FVector2D WorldXY, int32 Layer) const;
+
+	/**
+	 * True when the step From->To newly enters a ramp against its authored direction, or slams the
+	 * rim of a higher deck. Heading is degrees, same as the vehicle sim.
+	 */
+	bool IsWrongWayApproach(FVector2D FromWorld, FVector2D ToWorld, float HeadingDegrees, int32 Layer, float WorldZ) const;
+
+	/** Layer the bike should be on after this XY, given the layer it started the step on. */
+	int32 AdvanceLayer(FVector2D WorldXY, int32 Layer) const;
+
+	/** Closest surface at or below WorldZ. HintLayer is used when nothing is in range. */
+	int32 ResolveLayerAt(FVector2D WorldXY, float WorldZ, int32 HintLayer) const;
+
+	/** Highest authored deck index for the live layout (0 = ground only). */
+	int32 GetHighestFloorLayer() const;
+
+	/** True when a rising jump from BelowZ to AboveZ would hit the underside of a deck. */
+	bool HitsCeiling(FVector2D WorldXY, float BelowZ, float AboveZ) const;
+
+	/** Swap the authored layout and rebuild the floor. Index wraps. */
+	UFUNCTION(BlueprintCallable, Category = "Neon|Terrain")
+	void SetLayout(int32 Index);
+
+	/** Display name of the live layout. */
+	UFUNCTION(BlueprintPure, Category = "Neon|Terrain")
+	FText GetLayoutName() const;
+
+	/** Tiers drawn for the live layout. */
+	int32 GetActiveTierCount() const;
 
 	/** First arena actor in the world, or null. */
 	static ANeonArena* FindArena(const UWorld* World);
@@ -223,6 +282,7 @@ public:
 	UCameraComponent* GetCamera() const { return Camera; }
 
 	virtual void OnConstruction(const FTransform& Transform) override;
+	virtual void BeginPlay() override;
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Neon|Arena")

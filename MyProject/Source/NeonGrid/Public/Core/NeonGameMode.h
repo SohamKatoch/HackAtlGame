@@ -107,7 +107,9 @@ protected:
 	void BeginMatchResults(int32 WinnerSlot);
 	void ClearTimers();
 
-	void InitVehicle(ANeonVehiclePawn* Vehicle, int32 Slot);
+	void InitVehicle(ANeonVehiclePawn* Vehicle, int32 Slot, const FTransform* SpawnOverride = nullptr);
+	/** AI spawn for this round. Humans keep the fixed corners. */
+	FTransform MakeSpawnTransform(int32 Slot, bool bAI, FRandomStream& Rng, TArray<FVector2D>& Occupied) const;
 	void SpawnAIPlayers(int32 Count, ENeonAIDifficulty Level);
 	void DestroyAllVehicles();
 	void ResetVehiclesToSpawn();

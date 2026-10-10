@@ -34,7 +34,8 @@ public:
 	int32 GetOwnerId() const { return OwnerId; }
 
 	/** Called by the movement component after each step with the trail emission point (rear of vehicle). */
-	void RecordPosition(const FVector2D& Point, float HeadingDegrees, int32 Tick);
+	/** Z is the vehicle center. A change in height starts a new segment so a jump is a polyline, not a smear. */
+	void RecordPosition(const FVector2D& Point, float Z, float HeadingDegrees, int32 Tick);
 
 	/** Stop emitting (death). The existing trail stays. */
 	void StopTrail();
@@ -63,8 +64,10 @@ private:
 
 	bool bHasLastPoint = false;
 	FVector2D LastPoint = FVector2D::ZeroVector;
+	float LastZ = 0.f;
 
 	int32 CurrentSegment = INDEX_NONE;
 	FVector2D CurrentSegmentStart = FVector2D::ZeroVector;
+	float CurrentSegmentStartZ = 0.f;
 	float CurrentSegmentHeading = 0.f;
 };

@@ -295,7 +295,7 @@ bool UNeonPowerupComponent::ActivateTrailCutter()
 	FVector2D HitPoint;
 	FNeonTrailHit Hit;
 	if (!Collision->FindFirstTrailAlongRay(Movement->GetSimPosition(), Forward, C->TrailCutterReach, V->CollisionRadius,
-		Movement->GetPlayerSlot(), SelfIgnoreAfterTick, HitPoint, Hit))
+		Movement->GetPlayerSlot(), SelfIgnoreAfterTick, HitPoint, Hit, Movement->GetSimZ(), V->TrailVerticalRadius))
 	{
 		return false; // nothing to cut: keep the powerup
 	}

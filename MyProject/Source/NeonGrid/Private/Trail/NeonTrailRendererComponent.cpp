@@ -79,34 +79,25 @@ void UNeonTrailRendererComponent::EndPlay(const EEndPlayReason::Type EndPlayReas
 	Super::EndPlay(EndPlayReason);
 }
 
-float UNeonTrailRendererComponent::FloorHeightAt(const FVector2D& P) const
-{
-	const ANeonArena* A = Arena.Get();
-	return A ? A->GetFloorHeight(P) : 0.f;
-}
-
-FTransform UNeonTrailRendererComponent::MakeChunkTransform(const FVector2D& A, const FVector2D& B) const
+FTransform UNeonTrailRendererComponent::MakeChunkTransform(const FVector2D& A, const FVector2D& B, float ZA, float ZB) const
 {
 	const FVector2D Delta = B - A;
 	const float Length = Delta.Size();
 	const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(Delta.Y, Delta.X));
 	const FVector2D Mid = (A + B) * 0.5f;
 
-	// Sit on the floor at both ends; pitch the box along its length to follow a ramp.
-	const float ZA = FloorHeightAt(A);
-	const float ZB = FloorHeightAt(B);
+	// ZA/ZB are vehicle-center heights, including a jump. The ribbon is centered on that line.
 	const float Pitch = Length > KINDA_SMALL_NUMBER ? FMath::RadiansToDegrees(FMath::Atan2(ZB - ZA, Length)) : 0.f;
 	const float SlopeLength = FMath::Sqrt(Length * Length + (ZB - ZA) * (ZB - ZA));
 
 	// Engine cube is 100 cm. Overlap each end by half the thickness so joints do not show gaps.
 	const FVector Scale((SlopeLength + VisualThickness) / 100.f, VisualThickness / 100.f, VisualHeight / 100.f);
 	const FRotator Rot(Pitch, Yaw, 0.f);
-	// Lift along the box's own up axis so the base stays on the surface when pitched.
-	const FVector Location = FVector(Mid.X, Mid.Y, (ZA + ZB) * 0.5f) + Rot.RotateVector(FVector(0.f, 0.f, VisualHeight * 0.5f));
+	const FVector Location(Mid.X, Mid.Y, (ZA + ZB) * 0.5f);
 	return FTransform(Rot, Location, Scale);
 }
 
-void UNeonTrailRendererComponent::SyncSegmentChunks(int32 SegmentIndex, const FVector2D& A, const FVector2D& B)
+void UNeonTrailRendererComponent::SyncSegmentChunks(int32 SegmentIndex, const FVector2D& A, const FVector2D& B, float ZA, float ZB)
 {
 	TArray<int32>& Instances = SegmentToInstances.FindOrAdd(SegmentIndex);
 
@@ -121,9 +112,13 @@ void UNeonTrailRendererComponent::SyncSegmentChunks(int32 SegmentIndex, const FV
 	const int32 FirstToTouch = FMath::Max(0, Instances.Num() - 1);
 	for (int32 I = FirstToTouch; I < Wanted; ++I)
 	{
-		const FVector2D CA = A + Dir * (I * Chunk);
-		const FVector2D CB = (I == Wanted - 1) ? B : A + Dir * ((I + 1) * Chunk);
-		const FTransform T = MakeChunkTransform(CA, CB);
+		const float DistA = I * Chunk;
+		const float DistB = (I == Wanted - 1) ? Length : (I + 1) * Chunk;
+		const float TA = Length > KINDA_SMALL_NUMBER ? DistA / Length : 0.f;
+		const float TB = Length > KINDA_SMALL_NUMBER ? DistB / Length : 1.f;
+		const FVector2D CA = A + Dir * DistA;
+		const FVector2D CB = (I == Wanted - 1) ? B : A + Dir * DistB;
+		const FTransform T = MakeChunkTransform(CA, CB, FMath::Lerp(ZA, ZB, TA), FMath::Lerp(ZA, ZB, TB));
 		if (I < Instances.Num())
 		{
 			UpdateInstanceTransform(Instances[I], T, /*bWorldSpace*/ true, /*bMarkRenderStateDirty*/ false, /*bTeleport*/ true);
@@ -149,7 +144,7 @@ void UNeonTrailRendererComponent::HandleSegmentAdded(int32 SegmentIndex)
 	}
 
 	const FNeonTrailSegment& Seg = Segments[SegmentIndex];
-	SyncSegmentChunks(SegmentIndex, Seg.Start, Seg.End);
+	SyncSegmentChunks(SegmentIndex, Seg.Start, Seg.End, Seg.StartZ, Seg.EndZ);
 }
 
 void UNeonTrailRendererComponent::HandleSegmentExtended(int32 SegmentIndex)
@@ -165,7 +160,7 @@ void UNeonTrailRendererComponent::HandleSegmentExtended(int32 SegmentIndex)
 	}
 
 	const FNeonTrailSegment& Seg = Segments[SegmentIndex];
-	SyncSegmentChunks(SegmentIndex, Seg.Start, Seg.End);
+	SyncSegmentChunks(SegmentIndex, Seg.Start, Seg.End, Seg.StartZ, Seg.EndZ);
 }
 
 void UNeonTrailRendererComponent::HandleSegmentRemoved(int32 SegmentIndex)

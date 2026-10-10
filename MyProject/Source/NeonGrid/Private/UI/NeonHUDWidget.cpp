@@ -371,19 +371,7 @@ void UNeonHUDWidget::UpdateRideHUD(const ANeonGameState& GS)
 
 	if (SpeedText)
 	{
-		if (bShow)
-		{
-			// Same shape as the reference readout: cruise sits near 87.
-			const float Shown = Movement->GetCurrentSpeed() / 16.f;
-			SpeedText->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), Shown)));
-			const FLinearColor Color = Movement->IsAirborne() ? NeonUI::Accent : (Movement->IsSprinting() ? NeonUI::Warning : NeonUI::Text);
-			SpeedText->SetColorAndOpacity(FSlateColor(Color));
-			SpeedText->SetVisibility(ESlateVisibility::HitTestInvisible);
-		}
-		else
-		{
-			SpeedText->SetVisibility(ESlateVisibility::Collapsed);
-		}
+		SpeedText->SetVisibility(ESlateVisibility::Collapsed);
 	}
 
 	if (!bShow || !Movement)
@@ -547,7 +535,9 @@ void UNeonHUDWidget::UpdateTopCenter(const ANeonGameState& GS)
 	{
 		if (GS.GetRoundNumber() > 0)
 		{
-			RoundText->SetText(FText::Format(LOCTEXT("Round", "ROUND {0}   \u00B7   FIRST TO {1}"), GS.GetRoundNumber(), GS.GetScoreLimit()));
+			const ANeonArena* MapArena = FindArena();
+			const FText MapName = MapArena ? MapArena->GetLayoutName() : FText::GetEmpty();
+			RoundText->SetText(FText::Format(LOCTEXT("Round", "ROUND {0}   \u00B7   {1}   \u00B7   FIRST TO {2}"), GS.GetRoundNumber(), MapName, GS.GetScoreLimit()));
 			RoundText->SetVisibility(ESlateVisibility::HitTestInvisible);
 		}
 		else
@@ -564,22 +554,11 @@ void UNeonHUDWidget::UpdateTopCenter(const ANeonGameState& GS)
 		const ANeonArena* Arena = FindArena();
 		if (Arena && Arena->IsCollapseActive() && Phase == ENeonMatchPhase::Playing)
 		{
-			const float Until = Arena->GetSecondsUntilCollapse();
 			const float Progress = Arena->GetCollapseProgress();
-			if (Progress >= 1.f)
-			{
-				Line = LOCTEXT("WallsStopped", "WALLS LOCKED");
-				Alpha = 0.7f;
-			}
-			else if (Progress > 0.f)
+			if (Progress > 0.f && Progress < 1.f)
 			{
 				Line = LOCTEXT("WallsClosing", "WALLS CLOSING");
 				Alpha = 0.65f + 0.35f * FMath::Sin(Pulse * 6.f);
-			}
-			else if (Until >= 0.f && Until <= CollapseWarningSeconds)
-			{
-				Line = FText::Format(LOCTEXT("WallsIn", "WALLS CLOSE IN {0}"), FMath::CeilToInt(Until));
-				Alpha = Until <= 3.f ? 0.6f + 0.4f * FMath::Sin(Pulse * 10.f) : 1.f;
 			}
 		}
 

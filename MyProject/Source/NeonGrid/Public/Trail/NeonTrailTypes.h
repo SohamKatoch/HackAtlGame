@@ -18,6 +18,13 @@ struct NEONGRID_API FNeonTrailSegment
 	UPROPERTY(BlueprintReadOnly, Category = "Neon|Trail")
 	FVector2D End = FVector2D::ZeroVector;
 
+	/** World Z of the vehicle center when this end was laid. A jump leaves the laser in the air. */
+	UPROPERTY(BlueprintReadOnly, Category = "Neon|Trail")
+	float StartZ = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Neon|Trail")
+	float EndZ = 0.f;
+
 	/** Player slot that drew it. */
 	UPROPERTY(BlueprintReadOnly, Category = "Neon|Trail")
 	int32 OwnerId = INDEX_NONE;

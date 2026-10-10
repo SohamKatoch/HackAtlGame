@@ -52,6 +52,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision", meta = (ClampMin = "1"))
 	float CollisionRadius = 60.f;
 
+	/**
+	 * A laser only hits when the vehicle center is this close to the laser's Z, cm.
+	 * Same-floor trails still kill. A jump clears a wall that is below the bike.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision", meta = (ClampMin = "10"))
+	float TrailVerticalRadius = 90.f;
+
 	/** The trail is emitted this far behind the vehicle center, in cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision", meta = (ClampMin = "0"))
 	float TrailRearOffset = 70.f;

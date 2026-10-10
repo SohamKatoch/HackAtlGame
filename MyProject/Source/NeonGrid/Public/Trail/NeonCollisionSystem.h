@@ -36,7 +36,7 @@ public:
 	 * Move a segment's End forward (straight driving extends instead of adding).
 	 * Returns false if the segment no longer exists (cut away); the caller should start a new one.
 	 */
-	bool ExtendSegment(int32 Index, const FVector2D& NewEnd, int32 Tick);
+	bool ExtendSegment(int32 Index, const FVector2D& NewEnd, float NewEndZ, int32 Tick);
 
 	/** Mark one segment removed. Queries skip it; renderers get OnSegmentRemoved. */
 	void RemoveSegment(int32 Index);
@@ -55,18 +55,21 @@ public:
 	const TArray<FNeonTrailSegment>& GetSegments() const { return Segments; }
 
 	/**
-	 * Thickened sweep From->To against all trails.
-	 * Own segments with LastUpdateTick >= SelfIgnoreAfterTick are skipped (still being drawn).
+	 * Thickened sweep From->To. Own segments still being drawn are skipped.
+	 * VerticalRadius < 0 ignores height. Otherwise the laser only hits when its Z at the closest
+	 * point is within VerticalRadius of the sweeper's Z.
 	 */
 	bool SweepAgainstTrails(const FVector2D& From, const FVector2D& To, float Radius,
-		int32 SelfOwnerId, int32 SelfIgnoreAfterTick, FNeonTrailHit& OutHit) const;
+		int32 SelfOwnerId, int32 SelfIgnoreAfterTick, FNeonTrailHit& OutHit,
+		float FromZ = 0.f, float ToZ = 0.f, float VerticalRadius = -1.f) const;
 
 	/**
 	 * March a ray From toward Direction up to MaxDistance and return the first point at which a
 	 * thickened step touches a trail. For aiming the Trail Cutter. Same own-trail grace as a sweep.
 	 */
 	bool FindFirstTrailAlongRay(const FVector2D& From, const FVector2D& Direction, float MaxDistance, float Radius,
-		int32 SelfOwnerId, int32 SelfIgnoreAfterTick, FVector2D& OutPoint, FNeonTrailHit& OutHit) const;
+		int32 SelfOwnerId, int32 SelfIgnoreAfterTick, FVector2D& OutPoint, FNeonTrailHit& OutHit,
+		float FromZ = 0.f, float VerticalRadius = -1.f) const;
 
 	// ---- Vehicles ----
 
@@ -93,7 +96,9 @@ public:
 
 	// ---- Geometry helpers (shared with AI prediction) ----
 
-	static float SegmentSegmentDistanceSquared(const FVector2D& P1, const FVector2D& Q1, const FVector2D& P2, const FVector2D& Q2);
+	/** OutT is the parameter on P1-Q1, OutU on P2-Q2, both 0..1 at the closest approach. */
+	static float SegmentSegmentDistanceSquared(const FVector2D& P1, const FVector2D& Q1, const FVector2D& P2, const FVector2D& Q2,
+		float* OutT = nullptr, float* OutU = nullptr);
 	static float PointSegmentDistanceSquared(const FVector2D& P, const FVector2D& A, const FVector2D& B);
 
 private:

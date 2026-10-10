@@ -146,6 +146,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
 	float GetSimZ() const { return SimZ; }
 
+	/** Which stacked deck the bike is on. 0 is the ground. */
+	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
+	int32 GetSimLayer() const { return SimLayer; }
+
 	/** Grounded, alive, and the jump bar is full. */
 	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
 	bool CanJump() const;
@@ -189,8 +193,8 @@ protected:
 private:
 	void StepSimulation(float Dt);
 	void UpdateMeters(float Dt);
-	/** Returns true if the move From->To is lethal. Fills Cause. May eliminate another vehicle. Air skips trails. */
-	bool CheckHazards(const FVector2D& From, const FVector2D& To, bool bIgnoreTrails, ENeonEliminationCause& OutCause);
+	/** Returns true if the move From->To is lethal. Trail hits use Z, so a jump clears a lower laser. */
+	bool CheckHazards(const FVector2D& From, const FVector2D& To, float FromZ, float ToZ, ENeonEliminationCause& OutCause);
 	float ComputeTurnRateDegrees(float Speed) const;
 	void ApplyInterpolatedTransform(float Alpha);
 	void Eliminate(ENeonEliminationCause Cause);
@@ -210,6 +214,8 @@ private:
 	float SimZ = 0.f;
 	float PrevSimZ = 0.f;
 	float VerticalVelocity = 0.f;
+	/** Stacked deck the bike is riding. Jumps keep this until landing. */
+	int32 SimLayer = 0;
 	/** Highest upward speed built on the current climb. Launches off a lip if it clears the threshold. */
 	float PeakClimbVz = 0.f;
 	float TimeSinceClimb = 1.f;

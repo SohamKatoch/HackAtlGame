@@ -211,7 +211,14 @@ ANeonPlayerState* ANeonGameMode::FindPlayerStateForVehicle(const ANeonVehiclePaw
 	return GS ? GS->FindPlayerStateBySlot(Vehicle->GetPlayerSlot()) : nullptr;
 }
 
-void ANeonGameMode::InitVehicle(ANeonVehiclePawn* Vehicle, int32 Slot)
+FTransform ANeonGameMode::MakeSpawnTransform(int32 Slot, bool bAI, FRandomStream& Rng, TArray<FVector2D>& Occupied) const
+{
+	const FTransform Spawn = (bAI && Arena) ? Arena->GetRandomSpawnTransform(Rng, Occupied) : (Arena ? Arena->GetSpawnTransform(Slot) : FTransform::Identity);
+	Occupied.Add(FVector2D(Spawn.GetLocation().X, Spawn.GetLocation().Y));
+	return Spawn;
+}
+
+void ANeonGameMode::InitVehicle(ANeonVehiclePawn* Vehicle, int32 Slot, const FTransform* SpawnOverride)
 {
 	if (!Vehicle || !Arena)
 	{
@@ -239,7 +246,7 @@ void ANeonGameMode::InitVehicle(ANeonVehiclePawn* Vehicle, int32 Slot)
 	}
 
 	Vehicles.AddUnique(Vehicle);
-	Vehicle->ResetToSpawn(Arena->GetSpawnTransform(Slot));
+	Vehicle->ResetToSpawn(SpawnOverride ? *SpawnOverride : Arena->GetSpawnTransform(Slot));
 	RoundStartTicks.Add(Vehicle, Vehicle->GetMovement() ? Vehicle->GetMovement()->GetSimulationTick() : 0);
 }
 
@@ -276,8 +283,19 @@ void ANeonGameMode::SpawnAIPlayers(int32 Count, ENeonAIDifficulty Level)
 		return;
 	}
 
-	// AI takes the slots after the human players.
+	// AI takes the slots after the human players. Their spots are random; the humans stay on the corners.
 	const int32 HumanCount = FMath::Max(CountHumans(), 1);
+	TArray<FVector2D> Occupied;
+	for (const ANeonVehiclePawn* Existing : Vehicles)
+	{
+		if (IsValid(Existing))
+		{
+			const FVector L = Existing->GetActorLocation();
+			Occupied.Add(FVector2D(L.X, L.Y));
+		}
+	}
+	const int32 Round = GetNeonGameState() ? GetNeonGameState()->GetRoundNumber() : 0;
+	FRandomStream Rng(AISeed + Round * 97 + 11);
 
 	for (int32 i = 0; i < Count; ++i)
 	{
@@ -287,14 +305,15 @@ void ANeonGameMode::SpawnAIPlayers(int32 Count, ENeonAIDifficulty Level)
 			break;
 		}
 
+		const FTransform Spawn = MakeSpawnTransform(Slot, true, Rng, Occupied);
 		FActorSpawnParameters Params;
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		ANeonVehiclePawn* Vehicle = World->SpawnActor<ANeonVehiclePawn>(DefaultPawnClass, Arena->GetSpawnTransform(Slot), Params);
+		ANeonVehiclePawn* Vehicle = World->SpawnActor<ANeonVehiclePawn>(DefaultPawnClass, Spawn, Params);
 		if (!Vehicle)
 		{
 			continue;
 		}
-		InitVehicle(Vehicle, Slot);
+		InitVehicle(Vehicle, Slot, &Spawn);
 
 		ANeonAIController* AI = World->SpawnActor<ANeonAIController>(AIControllerClass, Params);
 		if (!AI)
@@ -381,15 +400,20 @@ void ANeonGameMode::ResetVehiclesToSpawn()
 		Collision->ClearAllTrails();
 	}
 
+	TArray<FVector2D> Occupied;
+	const int32 Round = GetNeonGameState() ? GetNeonGameState()->GetRoundNumber() : 0;
+	FRandomStream Rng(AISeed + Round * 97 + 53);
 	for (ANeonVehiclePawn* Vehicle : Vehicles)
 	{
 		if (!IsValid(Vehicle))
 		{
 			continue;
 		}
-		Vehicle->ResetToSpawn(Arena->GetSpawnTransform(Vehicle->GetPlayerSlot()));
+		ANeonPlayerState* PS = FindPlayerStateForVehicle(Vehicle);
+		const bool bAI = PS && PS->IsAI();
+		Vehicle->ResetToSpawn(MakeSpawnTransform(Vehicle->GetPlayerSlot(), bAI, Rng, Occupied));
 		RoundStartTicks.Add(Vehicle, Vehicle->GetMovement() ? Vehicle->GetMovement()->GetSimulationTick() : 0);
-		if (ANeonPlayerState* PS = FindPlayerStateForVehicle(Vehicle))
+		if (PS)
 		{
 			PS->SetAlive(true);
 		}
@@ -533,6 +557,17 @@ void ANeonGameMode::BeginCountdown()
 
 	GS->SetRoundNumber(GS->GetRoundNumber() + 1);
 	GS->SetRoundWinnerSlot(-1);
+	if (Arena)
+	{
+		// A placed arena can still be carrying the old 8s / 40s collapse and the cliff lip.
+		Arena->CollapseStartDelay = 25.f;
+		Arena->CollapseDuration = 120.f;
+		Arena->LaunchRampHeight = 420.f;
+		Arena->LaunchRampLength = 2800.f;
+		Arena->LaunchRampHalfWidth = 1200.f;
+		Arena->LaunchRampLipFraction = 0.5f;
+		Arena->SetLayout(GS->GetRoundNumber() - 1);
+	}
 	ResetVehiclesToSpawn();
 	SetAllFrozen(true);
 	if (PowerupSpawner)
@@ -543,7 +578,7 @@ void ANeonGameMode::BeginCountdown()
 
 	const float Duration = FMath::Max(CountdownDuration, 0.f);
 	GS->SetPhase(ENeonMatchPhase::Countdown, Duration);
-	UE_LOG(LogNeonGrid, Log, TEXT("Round %d: countdown %.1f s."), GS->GetRoundNumber(), Duration);
+	UE_LOG(LogNeonGrid, Log, TEXT("Round %d (%s): countdown %.1f s."), GS->GetRoundNumber(), Arena ? *Arena->GetLayoutName().ToString() : TEXT("no arena"), Duration);
 
 	if (Duration > 0.f)
 	{

@@ -221,8 +221,13 @@ bool UNeonPowerupSpawner::FindSpawnPoint(FVector2D& OutPoint)
 	{
 		bool bOk = true;
 
+		if (!A->HasFloorOnLayer(P, 0))
+		{
+			continue;
+		}
 		FNeonTrailHit Hit;
-		if (Collision->SweepAgainstTrails(P, P, C->MinDistanceFromTrails, INDEX_NONE, 0, Hit))
+		const float GroundZ = A->GetFloorHeightOnLayer(P, 0) + A->VehicleSpawnHeight;
+		if (Collision->SweepAgainstTrails(P, P, C->MinDistanceFromTrails, INDEX_NONE, 0, Hit, GroundZ, GroundZ, 90.f))
 		{
 			continue; // inside or beside a trail
 		}

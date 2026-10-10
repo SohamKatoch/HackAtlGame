@@ -42,7 +42,7 @@ int32 UNeonCollisionSystem::AddSegment(const FNeonTrailSegment& Segment)
 	return Index;
 }
 
-bool UNeonCollisionSystem::ExtendSegment(int32 Index, const FVector2D& NewEnd, int32 Tick)
+bool UNeonCollisionSystem::ExtendSegment(int32 Index, const FVector2D& NewEnd, float NewEndZ, int32 Tick)
 {
 	if (!Segments.IsValidIndex(Index) || Segments[Index].bRemoved)
 	{
@@ -52,6 +52,7 @@ bool UNeonCollisionSystem::ExtendSegment(int32 Index, const FVector2D& NewEnd, i
 	FNeonTrailSegment& Seg = Segments[Index];
 	const FVector2D OldEnd = Seg.End;
 	Seg.End = NewEnd;
+	Seg.EndZ = NewEndZ;
 	Seg.LastUpdateTick = Tick;
 	InsertIntoCells(Index, OldEnd, NewEnd);
 	OnSegmentExtended.Broadcast(Index);
@@ -141,6 +142,7 @@ int32 UNeonCollisionSystem::CutTrailsInCircle(const FVector2D& Center, float Rad
 			FNeonTrailSegment Piece = Original;
 			Piece.bRemoved = false;
 			Piece.End = Original.Start + D * T1;
+			Piece.EndZ = FMath::Lerp(Original.StartZ, Original.EndZ, T1);
 			if ((Piece.End - Piece.Start).Size() >= MinPieceLength)
 			{
 				AddSegment(Piece);
@@ -151,6 +153,7 @@ int32 UNeonCollisionSystem::CutTrailsInCircle(const FVector2D& Center, float Rad
 			FNeonTrailSegment Piece = Original;
 			Piece.bRemoved = false;
 			Piece.Start = Original.Start + D * T2;
+			Piece.StartZ = FMath::Lerp(Original.StartZ, Original.EndZ, T2);
 			if ((Piece.End - Piece.Start).Size() >= MinPieceLength)
 			{
 				AddSegment(Piece);
@@ -180,8 +183,21 @@ float UNeonCollisionSystem::PointSegmentDistanceSquared(const FVector2D& P, cons
 	return (P - (A + AB * T)).SizeSquared();
 }
 
-float UNeonCollisionSystem::SegmentSegmentDistanceSquared(const FVector2D& P1, const FVector2D& Q1, const FVector2D& P2, const FVector2D& Q2)
+float UNeonCollisionSystem::SegmentSegmentDistanceSquared(const FVector2D& P1, const FVector2D& Q1, const FVector2D& P2, const FVector2D& Q2, float* OutT, float* OutU)
 {
+	auto SetParams = [&](float T, float U)
+	{
+		if (OutT) { *OutT = T; }
+		if (OutU) { *OutU = U; }
+	};
+
+	auto ClosestT = [](const FVector2D& P, const FVector2D& A, const FVector2D& B)
+	{
+		const FVector2D AB = B - A;
+		const float LenSq = AB.SizeSquared();
+		return LenSq <= KINDA_SMALL_NUMBER ? 0.f : FMath::Clamp(FVector2D::DotProduct(P - A, AB) / LenSq, 0.f, 1.f);
+	};
+
 	// Proper intersection test first.
 	auto Cross = [](const FVector2D& A, const FVector2D& B) { return A.X * B.Y - A.Y * B.X; };
 	const FVector2D D1 = Q1 - P1;
@@ -194,20 +210,44 @@ float UNeonCollisionSystem::SegmentSegmentDistanceSquared(const FVector2D& P1, c
 		const float U = Cross(R, D1) / Denom;
 		if (T >= 0.f && T <= 1.f && U >= 0.f && U <= 1.f)
 		{
+			SetParams(T, U);
 			return 0.f;
 		}
 	}
 
-	// Otherwise the closest approach is at an endpoint.
+	// Otherwise the closest approach is at an endpoint. T is on P1-Q1, U on P2-Q2.
 	float Best = PointSegmentDistanceSquared(P1, P2, Q2);
-	Best = FMath::Min(Best, PointSegmentDistanceSquared(Q1, P2, Q2));
-	Best = FMath::Min(Best, PointSegmentDistanceSquared(P2, P1, Q1));
-	Best = FMath::Min(Best, PointSegmentDistanceSquared(Q2, P1, Q1));
+	float BestT = 0.f;
+	float BestU = ClosestT(P1, P2, Q2);
+
+	const float Q1Dist = PointSegmentDistanceSquared(Q1, P2, Q2);
+	if (Q1Dist < Best)
+	{
+		Best = Q1Dist;
+		BestT = 1.f;
+		BestU = ClosestT(Q1, P2, Q2);
+	}
+	const float P2Dist = PointSegmentDistanceSquared(P2, P1, Q1);
+	if (P2Dist < Best)
+	{
+		Best = P2Dist;
+		BestT = ClosestT(P2, P1, Q1);
+		BestU = 0.f;
+	}
+	const float Q2Dist = PointSegmentDistanceSquared(Q2, P1, Q1);
+	if (Q2Dist < Best)
+	{
+		Best = Q2Dist;
+		BestT = ClosestT(Q2, P1, Q1);
+		BestU = 1.f;
+	}
+
+	SetParams(BestT, BestU);
 	return Best;
 }
 
 bool UNeonCollisionSystem::SweepAgainstTrails(const FVector2D& From, const FVector2D& To, float Radius,
-	int32 SelfOwnerId, int32 SelfIgnoreAfterTick, FNeonTrailHit& OutHit) const
+	int32 SelfOwnerId, int32 SelfIgnoreAfterTick, FNeonTrailHit& OutHit, float FromZ, float ToZ, float VerticalRadius) const
 {
 	if (Segments.Num() == 0)
 	{
@@ -252,8 +292,19 @@ bool UNeonCollisionSystem::SweepAgainstTrails(const FVector2D& From, const FVect
 					continue;
 				}
 
-				if (SegmentSegmentDistanceSquared(From, To, Seg.Start, Seg.End) <= RadiusSq)
+				float T = 0.f;
+				float U = 0.f;
+				if (SegmentSegmentDistanceSquared(From, To, Seg.Start, Seg.End, &T, &U) <= RadiusSq)
 				{
+					if (VerticalRadius >= 0.f)
+					{
+						const float SweepZ = FMath::Lerp(FromZ, ToZ, T);
+						const float TrailZ = FMath::Lerp(Seg.StartZ, Seg.EndZ, U);
+						if (FMath::Abs(SweepZ - TrailZ) > VerticalRadius)
+						{
+							continue;
+						}
+					}
 					OutHit.SegmentIndex = Index;
 					OutHit.OwnerId = Seg.OwnerId;
 					return true;
@@ -266,7 +317,7 @@ bool UNeonCollisionSystem::SweepAgainstTrails(const FVector2D& From, const FVect
 }
 
 bool UNeonCollisionSystem::FindFirstTrailAlongRay(const FVector2D& From, const FVector2D& Direction, float MaxDistance, float Radius,
-	int32 SelfOwnerId, int32 SelfIgnoreAfterTick, FVector2D& OutPoint, FNeonTrailHit& OutHit) const
+	int32 SelfOwnerId, int32 SelfIgnoreAfterTick, FVector2D& OutPoint, FNeonTrailHit& OutHit, float FromZ, float VerticalRadius) const
 {
 	const FVector2D Dir = Direction.GetSafeNormal();
 	if (Dir.IsNearlyZero() || MaxDistance <= 0.f)
@@ -280,7 +331,7 @@ bool UNeonCollisionSystem::FindFirstTrailAlongRay(const FVector2D& From, const F
 	for (int32 i = 1; i <= Steps; ++i)
 	{
 		const FVector2D Next = From + Dir * FMath::Min(i * StepLength, MaxDistance);
-		if (SweepAgainstTrails(Prev, Next, Radius, SelfOwnerId, SelfIgnoreAfterTick, OutHit))
+		if (SweepAgainstTrails(Prev, Next, Radius, SelfOwnerId, SelfIgnoreAfterTick, OutHit, FromZ, FromZ, VerticalRadius))
 		{
 			OutPoint = Next;
 			return true;
