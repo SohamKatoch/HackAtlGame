@@ -118,11 +118,15 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Neon|Vehicle")
 	TObjectPtr<UNeonLeanComponent> LeanRoot;
 
-	/** Placeholder until the Blender vehicle lands (Milestone 8). */
+	/** Tron Uprez light cycle body (includes the front wheel). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Neon|Vehicle")
 	TObjectPtr<UStaticMeshComponent> BodyMesh;
 
-	/** Small forward block so heading is obvious. */
+	/** Tron Uprez light cycle rear wheel. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Neon|Vehicle")
+	TObjectPtr<UStaticMeshComponent> WheelMesh;
+
+	/** Small forward block so heading is obvious. Hidden in game now that the light cycle model is in. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Neon|Vehicle")
 	TObjectPtr<UStaticMeshComponent> NoseMesh;
 
@@ -143,6 +147,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> BodyMID;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> WheelMID;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> NoseMID;

@@ -12,6 +12,21 @@
 #include "UObject/ConstructorHelpers.h"
 #include "Vehicle/NeonLeanComponent.h"
 
+namespace
+{
+	/** Tints the Tron light cycle material: paint + ring take the team color, light strips take Glow. */
+	void SetCycleColors(UMaterialInstanceDynamic* MID, const FLinearColor& Paint, const FLinearColor& Glow)
+	{
+		if (!MID)
+		{
+			return;
+		}
+		MID->SetVectorParameterValue(TEXT("Paint Color"), Paint);
+		MID->SetVectorParameterValue(TEXT("Ring Color"), Paint);
+		MID->SetVectorParameterValue(TEXT("Lighting Color"), Glow);
+	}
+}
+
 ANeonVehiclePawn::ANeonVehiclePawn()
 {
 	// Actor tick is cosmetic only (powerup visuals). Simulation runs in the movement component.
@@ -36,13 +51,28 @@ ANeonVehiclePawn::ANeonVehiclePawn()
 	LeanRoot = CreateDefaultSubobject<UNeonLeanComponent>(TEXT("LeanRoot"));
 	LeanRoot->SetupAttachment(Root);
 
+	// Tron Uprez light cycle. Source model is ~372 cm long (+X forward, origin at the ground), assembled
+	// as in BP_Light_Cycle_Uprez: body at X=+37, rear wheel at (-139, 0, 54). Scaled to ~150 cm to match
+	// the 60 cm collision radius, centered on the pawn, and dropped onto the floor (Z = -15, see ShieldDisc).
+	constexpr float CycleScale = 0.4f;
+	constexpr float CycleCenterX = 7.f; // shifts the assembly so its overall length is centered on the pawn
+	constexpr float FloorZ = -15.f;
+
 	BodyMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BodyMesh"));
 	BodyMesh->SetupAttachment(LeanRoot);
 	BodyMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	BodyMesh->SetGenerateOverlapEvents(false);
 	BodyMesh->SetCastShadow(false);
-	// Engine cube is 100 cm. Body: 140 x 70 x 30 cm, low and wide.
-	BodyMesh->SetRelativeScale3D(FVector(1.4f, 0.7f, 0.3f));
+	BodyMesh->SetRelativeLocation(FVector((37.f + CycleCenterX) * CycleScale, 0.f, FloorZ));
+	BodyMesh->SetRelativeScale3D(FVector(CycleScale));
+
+	WheelMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WheelMesh"));
+	WheelMesh->SetupAttachment(LeanRoot);
+	WheelMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WheelMesh->SetGenerateOverlapEvents(false);
+	WheelMesh->SetCastShadow(false);
+	WheelMesh->SetRelativeLocation(FVector((-139.f + CycleCenterX) * CycleScale, 0.f, FloorZ + 54.f * CycleScale));
+	WheelMesh->SetRelativeScale3D(FVector(CycleScale));
 
 	NoseMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("NoseMesh"));
 	NoseMesh->SetupAttachment(LeanRoot);
@@ -51,6 +81,9 @@ ANeonVehiclePawn::ANeonVehiclePawn()
 	NoseMesh->SetCastShadow(false);
 	NoseMesh->SetRelativeLocation(FVector(85.f, 0.f, 5.f));
 	NoseMesh->SetRelativeScale3D(FVector(0.5f, 0.3f, 0.2f));
+	// The light cycle shows heading on its own; boost glow moves to the cycle's light strips.
+	// HiddenInGame (not Visibility) so LeanRoot's propagated SetVisibility does not bring it back.
+	NoseMesh->SetHiddenInGame(true);
 
 	// Shield: a thin disc on the floor around the vehicle. Attached to Root so it does not lean.
 	ShieldDisc = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ShieldDisc"));
@@ -86,21 +119,30 @@ ANeonVehiclePawn::ANeonVehiclePawn()
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderFinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CycleBodyFinder(TEXT("/Game/Tron_Uprez/Vehicles/Light_Cycle_Uprez/Parts/Main_Body.Main_Body"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CycleWheelFinder(TEXT("/Game/Tron_Uprez/Vehicles/Light_Cycle_Uprez/Parts/Wheel.Wheel"));
 	if (CubeFinder.Succeeded())
 	{
-		BodyMesh->SetStaticMesh(CubeFinder.Object);
 		NoseMesh->SetStaticMesh(CubeFinder.Object);
 	}
 	if (CylinderFinder.Succeeded())
 	{
 		ShieldDisc->SetStaticMesh(CylinderFinder.Object);
 	}
+	// Mesh's own material (M_lightcycle_Uprez_Inst) is kept; ApplyColor tints it per player.
+	if (CycleBodyFinder.Succeeded())
+	{
+		BodyMesh->SetStaticMesh(CycleBodyFinder.Object);
+	}
+	if (CycleWheelFinder.Succeeded())
+	{
+		WheelMesh->SetStaticMesh(CycleWheelFinder.Object);
+	}
 
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> MaterialFinder(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 	if (MaterialFinder.Succeeded())
 	{
 		PlaceholderMaterial = MaterialFinder.Object;
-		BodyMesh->SetMaterial(0, PlaceholderMaterial);
 		NoseMesh->SetMaterial(0, PlaceholderMaterial);
 		ShieldDisc->SetMaterial(0, PlaceholderMaterial);
 	}
@@ -155,7 +197,7 @@ void ANeonVehiclePawn::UpdatePowerupVisuals(float DeltaTime)
 	{
 		NoseMID->SetVectorParameterValue(TEXT("Color"), bSpeeding ? NeonPowerups::Color(Active) : NoseColor);
 	}
-	if (BodyMID)
+	if (BodyMID || WheelMID)
 	{
 		FLinearColor Body = VehicleColor;
 		if (Powerups->IsEMPd())
@@ -163,7 +205,9 @@ void ANeonVehiclePawn::UpdatePowerupVisuals(float DeltaTime)
 			const float Flicker = 0.5f + 0.5f * FMath::Sin(GetWorld()->GetTimeSeconds() * 30.f);
 			Body = FMath::Lerp(VehicleColor * 0.3f, NeonPowerups::Color(ENeonPowerupType::EMP), 0.5f * Flicker);
 		}
-		BodyMID->SetVectorParameterValue(TEXT("Color"), Body);
+		const FLinearColor Glow = bSpeeding ? NeonPowerups::Color(Active) : Body;
+		SetCycleColors(BodyMID, Body, Glow);
+		SetCycleColors(WheelMID, Body, Glow);
 	}
 }
 
@@ -277,7 +321,10 @@ void ANeonVehiclePawn::ApplyColor()
 		return MID;
 	};
 
-	BodyMID = Tint(BodyMesh, VehicleColor);
+	BodyMID = BodyMesh && BodyMesh->GetMaterial(0) ? BodyMesh->CreateAndSetMaterialInstanceDynamic(0) : nullptr;
+	WheelMID = WheelMesh && WheelMesh->GetMaterial(0) ? WheelMesh->CreateAndSetMaterialInstanceDynamic(0) : nullptr;
+	SetCycleColors(BodyMID, VehicleColor, VehicleColor);
+	SetCycleColors(WheelMID, VehicleColor, VehicleColor);
 	if (TrailRenderer)
 	{
 		TrailRenderer->SetTrailColor(VehicleColor);
