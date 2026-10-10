@@ -29,3 +29,8 @@ MyProject/Config/DefaultEditorPerProjectUserSettings.ini
 *.tmp
 .DS_Store
 Thumbs.db
+
+# Local-only: per-machine IDE files and the paid Nwiro plugin (licensed per user, not redistributable).
+*.slnx
+.vsconfig
+MyProject/Plugins/NwiroIK_*/
