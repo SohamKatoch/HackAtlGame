@@ -14,15 +14,18 @@ class ANeonGameState;
 class ANeonPlayerState;
 class ANeonArena;
 class UNeonPowerupComponent;
+class UNeonMovementComponent;
 
 /**
  * In-match HUD (guide section 69).
  *
  *   Top left:      standings panel, one row per slot (color swatch, name, wins), dimmed when out.
- *   Top center:    round number / score limit, and the closing-walls warning (DECISIONS.md D27).
+ *   Top center:    round number / score limit, speed readout, closing-walls warning (DECISIONS.md D27).
  *   Top right:     vehicles still alive.
+ *   Corners:       bracket ticks. Countdown shows a NEON GRID boot title (D29).
  *   Center:        countdown, GO, round / match result; in MatchResults the final standings and
  *                  REMATCH / MAIN MENU buttons. A dead player sees who the camera is following.
+ *   Bottom left:   sprint meter (hold Shift). Bottom right: jump meter (Ctrl / F).
  *   Bottom center: the powerup slot (held name, ACTIVE / ARMED, time bar) or STEERING JAMMED (M4).
  *
  * The tree is built in code when no Blueprint subclass provides one. Named members are
@@ -54,7 +57,10 @@ protected:
 	void UpdateResultsStandings(const ANeonGameState& GS, const ANeonPlayerState* LocalPS, bool bShow);
 	void SetCenter(const FText& Big, const FText& Small, const FLinearColor& BigColor, const FLinearColor& SmallColor);
 	void UpdatePowerupPanel(const ANeonGameState& GS);
+	void UpdateRideHUD(const ANeonGameState& GS);
+	void UpdateBoot(const ANeonGameState& GS);
 	const UNeonPowerupComponent* FindLocalPowerups() const;
+	const UNeonMovementComponent* FindLocalMovement() const;
 	const ANeonArena* FindArena() const;
 	FText NameForSlot(const ANeonGameState& GS, int32 SlotIndex) const;
 	FLinearColor ColorForSlot(const ANeonGameState& GS, int32 SlotIndex) const;
@@ -74,8 +80,22 @@ protected:
 
 	// Top center / right
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> RoundText;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> SpeedText;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> CollapseText;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> AliveText;
+
+	// Boot title over the countdown, and the four corner brackets.
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> BootTitle;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> BootSub;
+	UPROPERTY(Transient) TArray<TObjectPtr<UWidget>> CornerBrackets;
+
+	// Sprint (bottom left) and jump (bottom right).
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UWidget> SprintPanel;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> SprintLabel;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UProgressBar> SprintBar;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UWidget> JumpPanel;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> JumpLabel;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UProgressBar> JumpBar;
 
 	// Center
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> CenterBig;

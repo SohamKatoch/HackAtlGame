@@ -18,8 +18,8 @@ Milestones 1–4, the offline round/match system (most of Milestone 5), the step
 - [x] `UNeonMovementComponent`: 60 Hz fixed step, heading/speed integration, min-radius clamp, boundary elimination, render interpolation, `SetFrozen` for countdown/results
 - [x] `UNeonLeanComponent`: cosmetic roll on the visual root only
 - [x] `ANeonVehiclePawn`: scene root + lean root + two engine-cube placeholders, color tint, follow camera (D21)
-- [x] `ANeonArena`: The Grid bounds (24000 × 16000, D27), closing walls, 4 inward-facing spawns, fixed whole-arena camera (menu backdrop), stepped-pyramid procedural terrain with plateau lips (D25), walls, dev light
-- [x] `ANeonPlayerController`: Enhanced Input built in code (A/D, arrows, left stick; Esc/gamepad Menu; Space / RT / gamepad A activates a powerup), per-frame input snapshot
+- [x] `ANeonArena`: The Grid bounds (24000 × 16000, D27), closing walls, 4 inward-facing spawns, fixed whole-arena camera (menu backdrop), stepped-pyramid procedural terrain with plateau lips (D25), four launch ramps (D29), walls, dev light
+- [x] `ANeonPlayerController`: Enhanced Input built in code (A/D, arrows, left stick; Esc/gamepad Menu; Space / RT / gamepad A activates a powerup; Shift sprints; Ctrl / F jumps), per-frame input snapshot
 - [x] Config: split-screen off, default map `/Game/NeonGrid/Maps/L_TheGrid`, default mode `NeonGameMode`, game instance `NeonGameInstance`
 - [x] Compile: `NeonGridEditor` builds clean with VS 2026 Community (MSVC 14.51). UBT warns that 14.51 is newer than its preferred 14.50.
 - [x] Level `L_TheGrid` (empty; the game mode spawns the arena)
@@ -90,7 +90,7 @@ Nothing mid-edit. Everything above compiles and the headless tests pass.
 
 ## NEXT
 
-- **Play it** on this compile: SOLO → START. Confirm the larger Grid, walls closing from 8 s, slower cruise, and the death camera locking onto a living bike.
+- **Play it** on this compile: SOLO → START. Shift sprints (meter bottom left), Ctrl or F jumps (meter bottom right). The cyan chevrons are launch ramps. Air draws no trail. AI should burn sprint on the straights and jump when boxed. Countdown shows the NEON GRID title.
 - LAN first slice (D28): HOST on one PC, JOIN with that IPv4 on another. Session search, ready, and trail replication are still open.
 - Powerup balance pass from a human play test.
 - Tune Hard / Expert from a human baseline.

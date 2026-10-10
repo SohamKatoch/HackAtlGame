@@ -252,3 +252,16 @@ The guide names six powerups (D6), one slot (D7), manual activation, and EMP as 
 **Status:** Accepted (Milestone 6 start)
 
 The LAN menu Host reloads `L_TheGrid` with `?listen`. Join travels to a typed IPv4 (optional `:port`, default 7777). Session search, ready-up, and color pick land later. Same compiled project on every machine; Windows Firewall must allow the editor / packaged exe on a private network.
+
+## D29 — Sprint, jump, and real air
+
+**Status:** Accepted (playtest: "not chaotic enough"; ramps should throw the bike; a recharging sprint the AI also spends)
+
+D25 stays the floor function. It is no longer presentation-only.
+
+- **Sprint** is a meter on `UNeonMovementComponent`, not a powerup. Left Shift (left bumper) only fires when the bar is full. That press empties the bar and grants 0.85 s at ×1.85 speed and ×0.55 turn rate, stacking with Boost. Releasing early does not refund it. The bar refills at 0.045/s (~22 s). The AI spends it on an open straight or a real cut, not on every cruise.
+- **Jump** is a second meter. Left Ctrl, F, or right bumper, and only when the bar is full. One hop empties it (1050 cm/s up). Refill is the same 0.045/s. A press in the air is buffered to landing. The AI spends it when a plan just became lethal.
+- **Air** integrates `SimZ` and vertical velocity under gravity 2400. The laser keeps drawing on the floor through the jump; air only ignores trail hits until landing. Bikes still die on the boundary. Vehicle hits require the two centers to be within 180 cm on Z, so a hop clears a bike. Landing on a trail is lethal. Pitch in the air follows the arc; on the ground it still follows the floor normal.
+- **Launch ramps:** four wedges on `ANeonArena` (steep climb, short lip, cyan chevrons). Climbing stores upward speed. If that speed reached 820 cm/s and the floor then drops steeper than -0.2, the bike leaves the floor with 90% of it. Cruise on the gentle pyramid (peak climb ~650) stays glued. Sprinting off a tier, and every authored ramp, launches.
+- **AI** spends sprint only on an open straight or a cut, and only plans the fast line while that bar is full. It spends jump when a plan just became lethal. A pickup inside about 26 m outweighs a tidy cruise, and chase weight is a step higher at every difficulty so they cut in a little earlier.
+- **HUD:** speed readout (cm/s ÷ 16, so cruise reads about 87), sprint bar bottom left, jump bar bottom right, corner brackets, and a NEON GRID title over the 3-2-1 that fades on GO.

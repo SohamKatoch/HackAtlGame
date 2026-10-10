@@ -189,5 +189,8 @@ protected:
 	float RecentTurn = 0.f;
 	float LastHeading = 0.f;
 
+	/** Set when a safe open straight or a chase is worth spending the sprint bar. Consumed once. */
+	bool bCommitSprint = false;
+
 	FSpaceGrid SpaceGrid;
 };

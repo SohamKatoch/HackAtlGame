@@ -42,6 +42,13 @@ public:
 	/** Forget the current segment and start fresh on the next RecordPosition (respawn / round reset). */
 	void ResetTrail();
 
+	/**
+	 * Break the ribbon without disabling emission. The next RecordPosition starts a new segment
+	 * and does not bridge the gap. The movement step calls this on takeoff and landing so a jump
+	 * does not draw a trail through the air (DECISIONS.md D29).
+	 */
+	void GapTrail();
+
 	bool IsEmitting() const { return bEmitting; }
 
 protected:

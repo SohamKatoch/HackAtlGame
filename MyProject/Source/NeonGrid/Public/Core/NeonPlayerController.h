@@ -56,6 +56,14 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Neon|Input")
 	TObjectPtr<UInputAction> ActivateAction;
 
+	/** Hold to sprint. Left Shift / gamepad left bumper. */
+	UPROPERTY(EditDefaultsOnly, Category = "Neon|Input")
+	TObjectPtr<UInputAction> SprintAction;
+
+	/** Jump. Left Ctrl, F, or gamepad right bumper. */
+	UPROPERTY(EditDefaultsOnly, Category = "Neon|Input")
+	TObjectPtr<UInputAction> JumpAction;
+
 	/** Widget classes. Defaults are the code-built C++ widgets; Blueprint subclasses can replace them. */
 	UPROPERTY(EditDefaultsOnly, Category = "Neon|UI")
 	TSubclassOf<UNeonHUDWidget> HUDWidgetClass;
@@ -138,6 +146,10 @@ protected:
 	void OnMenuPressed(const FInputActionValue& Value);
 	void OnActivatePressed(const FInputActionValue& Value);
 	void OnActivateReleased(const FInputActionValue& Value);
+	void OnSprintPressed(const FInputActionValue& Value);
+	void OnSprintReleased(const FInputActionValue& Value);
+	void OnJumpPressed(const FInputActionValue& Value);
+	void OnJumpReleased(const FInputActionValue& Value);
 
 	FNeonVehicleInput CurrentInput;
 

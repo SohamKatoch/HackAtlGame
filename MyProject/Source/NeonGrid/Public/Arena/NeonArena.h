@@ -17,9 +17,10 @@ class UMaterialInstanceDynamic;
  * Owns the gameplay rectangle, four inward-facing spawn points, a fixed whole-arena camera, and
  * cosmetic terrain/wall meshes. The meshes have no collision; the movement step uses GetBounds().
  *
- * Terrain (DECISIONS.md D25): a 2.5D stepped pyramid. The simulation is still 2D in X/Y; Z is
- * derived from GetFloorHeight(), which is continuous (plateaus joined by ramp bands), so height
- * never changes who hits what. Vehicles, trails and the camera read the height for presentation.
+ * Terrain (DECISIONS.md D25, D29): a stepped pyramid plus four launch ramps. GetFloorHeight() is
+ * still a continuous function of XY. On the ground a vehicle sticks to it. A steep lip (or a jump)
+ * leaves the floor; see UNeonMovementComponent. The pyramid tiers stay gentle so cruise speed stays
+ * glued. The launch ramps are steep enough to throw a bike.
  *
  * Collapse (DECISIONS.md D27): the playable rectangle shrinks toward the center during a round.
  * After CollapseStartDelay seconds of play the half extents interpolate linearly from HalfExtents to
@@ -94,6 +95,32 @@ public:
 	/** Width of the sloped band that climbs onto each tier, cm. Smaller = steeper, more cliff-like. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "50"))
 	float RampWidth = 450.f;
+
+	// ---- Launch ramps (D29). Added on top of the pyramid. Steep climb, short lip. ----
+
+	/** Master switch for the four authored ramps. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain")
+	bool bLaunchRamps = true;
+
+	/** Peak height of each ramp above the local pyramid, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "0"))
+	float LaunchRampHeight = 640.f;
+
+	/** Length of each ramp along its facing, cm. The last LaunchRampLipFraction of that is the drop. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "100"))
+	float LaunchRampLength = 1100.f;
+
+	/** Half-width of the ramp deck, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "50"))
+	float LaunchRampHalfWidth = 850.f;
+
+	/** Fraction of LaunchRampLength that falls back to the floor. That lip is what launches the bike. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "0.05", ClampMax = "0.5"))
+	float LaunchRampLipFraction = 0.18f;
+
+	/** Chevron color on the ramp deck so the lip reads from the follow camera. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain")
+	FLinearColor LaunchRampColor = FLinearColor(0.15f, 1.0f, 0.75f);
 
 	/** Vertex spacing of the terrain mesh, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Terrain", meta = (ClampMin = "25"))

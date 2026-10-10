@@ -79,6 +79,20 @@ void ANeonPlayerController::BuildDefaultInputAssets()
 		ActivateAction = Activate;
 	}
 
+	if (!SprintAction)
+	{
+		UInputAction* Sprint = NewObject<UInputAction>(this, TEXT("IA_NeonSprint"));
+		Sprint->ValueType = EInputActionValueType::Boolean;
+		SprintAction = Sprint;
+	}
+
+	if (!JumpAction)
+	{
+		UInputAction* Jump = NewObject<UInputAction>(this, TEXT("IA_NeonJump"));
+		Jump->ValueType = EInputActionValueType::Boolean;
+		JumpAction = Jump;
+	}
+
 	if (!VehicleMappingContext)
 	{
 		UInputMappingContext* IMC = NewObject<UInputMappingContext>(this, TEXT("IMC_NeonVehicle"));
@@ -110,6 +124,13 @@ void ANeonPlayerController::BuildDefaultInputAssets()
 		IMC->MapKey(ActivateAction, EKeys::Gamepad_RightTrigger);
 		IMC->MapKey(ActivateAction, EKeys::Gamepad_FaceButton_Bottom);
 
+		IMC->MapKey(SprintAction, EKeys::LeftShift);
+		IMC->MapKey(SprintAction, EKeys::Gamepad_LeftShoulder);
+
+		IMC->MapKey(JumpAction, EKeys::LeftControl);
+		IMC->MapKey(JumpAction, EKeys::F);
+		IMC->MapKey(JumpAction, EKeys::Gamepad_RightShoulder);
+
 		VehicleMappingContext = IMC;
 	}
 }
@@ -135,6 +156,16 @@ void ANeonPlayerController::SetupInputComponent()
 	EIC->BindAction(ActivateAction, ETriggerEvent::Started, this, &ANeonPlayerController::OnActivatePressed);
 	EIC->BindAction(ActivateAction, ETriggerEvent::Completed, this, &ANeonPlayerController::OnActivateReleased);
 	EIC->BindAction(ActivateAction, ETriggerEvent::Canceled, this, &ANeonPlayerController::OnActivateReleased);
+
+	EIC->BindAction(SprintAction, ETriggerEvent::Started, this, &ANeonPlayerController::OnSprintPressed);
+	EIC->BindAction(SprintAction, ETriggerEvent::Triggered, this, &ANeonPlayerController::OnSprintPressed);
+	EIC->BindAction(SprintAction, ETriggerEvent::Completed, this, &ANeonPlayerController::OnSprintReleased);
+	EIC->BindAction(SprintAction, ETriggerEvent::Canceled, this, &ANeonPlayerController::OnSprintReleased);
+
+	EIC->BindAction(JumpAction, ETriggerEvent::Started, this, &ANeonPlayerController::OnJumpPressed);
+	EIC->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ANeonPlayerController::OnJumpPressed);
+	EIC->BindAction(JumpAction, ETriggerEvent::Completed, this, &ANeonPlayerController::OnJumpReleased);
+	EIC->BindAction(JumpAction, ETriggerEvent::Canceled, this, &ANeonPlayerController::OnJumpReleased);
 }
 
 void ANeonPlayerController::OnPossess(APawn* InPawn)
@@ -329,6 +360,26 @@ void ANeonPlayerController::OnActivatePressed(const FInputActionValue& /*Value*/
 void ANeonPlayerController::OnActivateReleased(const FInputActionValue& /*Value*/)
 {
 	CurrentInput.bActivatePowerup = false;
+}
+
+void ANeonPlayerController::OnSprintPressed(const FInputActionValue& /*Value*/)
+{
+	CurrentInput.bSprint = true;
+}
+
+void ANeonPlayerController::OnSprintReleased(const FInputActionValue& /*Value*/)
+{
+	CurrentInput.bSprint = false;
+}
+
+void ANeonPlayerController::OnJumpPressed(const FInputActionValue& /*Value*/)
+{
+	CurrentInput.bJump = true;
+}
+
+void ANeonPlayerController::OnJumpReleased(const FInputActionValue& /*Value*/)
+{
+	CurrentInput.bJump = false;
 }
 
 // ---------------------------------------------------------------------------

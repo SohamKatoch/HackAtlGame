@@ -22,9 +22,17 @@ struct NEONGRID_API FNeonVehicleInput
 	float Steering = 0.f;
 
 	/**
-	 * Manual powerup activation (Space / right trigger).
-	 * Part of the snapshot shape from the spec. Nothing consumes it until the powerup milestone.
+	 * Manual powerup activation (Space / right trigger / gamepad A).
+	 * Latched on the rising edge by the movement component.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neon|Input")
 	bool bActivatePowerup = false;
+
+	/** Hold to drain the sprint meter and run faster (Left Shift / left bumper). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neon|Input")
+	bool bSprint = false;
+
+	/** Rising edge spends jump meter and leaves the floor (Left Ctrl / F / right bumper). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Neon|Input")
+	bool bJump = false;
 };

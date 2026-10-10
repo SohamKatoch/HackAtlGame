@@ -79,3 +79,9 @@ void UNeonTrailComponent::ResetTrail()
 	bHasLastPoint = false;
 	CurrentSegment = INDEX_NONE;
 }
+
+void UNeonTrailComponent::GapTrail()
+{
+	bHasLastPoint = false;
+	CurrentSegment = INDEX_NONE;
+}

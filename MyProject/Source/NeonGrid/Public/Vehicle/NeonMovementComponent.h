@@ -75,13 +75,14 @@ public:
 	void SetArenaBounds(const FBox2D& InBounds);
 
 	/**
-	 * Bounds plus the terrain height source (DECISIONS.md D25). The simulation stays 2D; the arena's
-	 * floor height only drives the actor's Z and cosmetic pitch/roll in ApplyInterpolatedTransform.
+	 * Bounds plus the terrain height source. On the ground Z sticks to the floor. A jump or a steep
+	 * lip leaves the floor: SimZ and vertical velocity integrate with gravity, trails are not laid
+	 * and trails are not lethal until landing (DECISIONS.md D29).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Neon|Movement")
 	void SetArena(const ANeonArena* InArena);
 
-	/** Tilt the actor to the floor normal on ramps. Cosmetic; the camera inherits yaw only. */
+	/** Tilt the actor to the floor normal while grounded. In the air, pitch follows vertical speed. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Neon|Simulation")
 	bool bAlignToFloor = true;
 
@@ -127,6 +128,32 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
 	float GetCurrentSpeed() const { return CurrentSpeed; }
 
+	/** 0..1. Full bar to start a burst; during the burst this is the time left. Then a slow refill. */
+	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
+	float GetSprintMeter() const;
+
+	/** 0..1. One jump spends JumpCost (the whole bar). Refills slowly on the ground and in the air. */
+	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
+	float GetJumpMeter() const { return JumpMeter; }
+
+	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
+	bool IsSprinting() const { return bSprintingApplied; }
+
+	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
+	bool IsAirborne() const { return bAirborne; }
+
+	/** Gameplay Z of the vehicle center. Vehicle hits ignore pairs farther apart than AirCollisionHeight. */
+	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
+	float GetSimZ() const { return SimZ; }
+
+	/** Grounded, alive, and the jump bar is full. */
+	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
+	bool CanJump() const;
+
+	/** Alive, not already bursting, and the sprint bar is full. */
+	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
+	bool CanSprint() const;
+
 	/** Steering actually applied on the last step (-1..1). Lean reads this. */
 	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
 	float GetAppliedSteering() const { return AppliedSteering; }
@@ -161,8 +188,9 @@ protected:
 
 private:
 	void StepSimulation(float Dt);
-	/** Returns true if the move From->To is lethal. Fills Cause. May eliminate another vehicle. */
-	bool CheckHazards(const FVector2D& From, const FVector2D& To, ENeonEliminationCause& OutCause);
+	void UpdateMeters(float Dt);
+	/** Returns true if the move From->To is lethal. Fills Cause. May eliminate another vehicle. Air skips trails. */
+	bool CheckHazards(const FVector2D& From, const FVector2D& To, bool bIgnoreTrails, ENeonEliminationCause& OutCause);
 	float ComputeTurnRateDegrees(float Speed) const;
 	void ApplyInterpolatedTransform(float Alpha);
 	void Eliminate(ENeonEliminationCause Cause);
@@ -177,6 +205,23 @@ private:
 	float FloorZ = 0.f;
 	/** Actor Z above the terrain surface when there is one (the arena's VehicleSpawnHeight). */
 	float FloorOffset = 0.f;
+
+	/** Gameplay height of the vehicle center. Glued to the floor while grounded. */
+	float SimZ = 0.f;
+	float PrevSimZ = 0.f;
+	float VerticalVelocity = 0.f;
+	/** Highest upward speed built on the current climb. Launches off a lip if it clears the threshold. */
+	float PeakClimbVz = 0.f;
+	float TimeSinceClimb = 1.f;
+	bool bAirborne = false;
+
+	/** 0..1 meters. Shared by humans and AI; the HUD reads them. */
+	float SprintMeter = 1.f;
+	float JumpMeter = 1.f;
+	/** Seconds left in a committed sprint burst. The bar is emptied when the burst starts. */
+	float SprintTimeLeft = 0.f;
+	bool bSprintingApplied = false;
+	bool bSprintHeld = false;
 
 	/** Terrain height source. Outlives every vehicle; weak so a destroyed arena cannot dangle. */
 	TWeakObjectPtr<const ANeonArena> HeightSource;
@@ -193,6 +238,10 @@ private:
 	/** Set by SetInput on a rising activate edge; consumed by the next step. */
 	bool bActivateLatched = false;
 	bool bLastActivateInput = false;
+
+	/** Rising edge of bJump. Consumed on the next grounded step (buffered through the air). */
+	bool bJumpLatched = false;
+	bool bLastJumpInput = false;
 
 	FBox2D ArenaBounds;
 	bool bHasArenaBounds = false;

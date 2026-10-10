@@ -282,15 +282,98 @@ FTransform ANeonArena::GetSpawnTransform(int32 PlayerIndex) const
 }
 
 // ---------------------------------------------------------------------------
-// Terrain (D25): concentric rectangular tiers, each reached by a smooth ramp band.
-// Continuous everywhere, so Z is a pure function of XY and never affects the 2D simulation.
+// Terrain: concentric tiers (D25) plus four launch ramps (D29).
+// Continuous everywhere. A vehicle sticks to this height until a jump or a lip.
 // ---------------------------------------------------------------------------
+
+namespace
+{
+	struct FNeonRamp
+	{
+		FVector2D Origin;
+		FVector2D Dir;
+	};
+
+	void CollectLaunchRamps(const ANeonArena& Arena, FNeonRamp (&Out)[4])
+	{
+		const FVector2D H = Arena.HalfExtents;
+		// Low end of each ramp. The deck runs LaunchRampLength along Dir, then drops.
+		Out[0] = { FVector2D(-0.40f * H.X,  0.30f * H.Y), FVector2D( 1.f,  0.f) };
+		Out[1] = { FVector2D( 0.40f * H.X, -0.30f * H.Y), FVector2D(-1.f,  0.f) };
+		Out[2] = { FVector2D( 0.18f * H.X,  0.38f * H.Y), FVector2D( 0.f, -1.f) };
+		Out[3] = { FVector2D(-0.18f * H.X, -0.38f * H.Y), FVector2D( 0.f,  1.f) };
+	}
+
+	float LaunchRampHeightAt(const ANeonArena& Arena, float X, float Y)
+	{
+		if (!Arena.bLaunchRamps || Arena.LaunchRampHeight <= 0.f || Arena.LaunchRampLength <= 1.f)
+		{
+			return 0.f;
+		}
+
+		FNeonRamp Ramps[4];
+		CollectLaunchRamps(Arena, Ramps);
+
+		const float Length = Arena.LaunchRampLength;
+		const float HalfW = FMath::Max(Arena.LaunchRampHalfWidth, 50.f);
+		const float Lip = FMath::Clamp(Arena.LaunchRampLipFraction, 0.05f, 0.5f);
+		const float Edge = FMath::Min(220.f, HalfW * 0.45f);
+		const float Climb = FMath::Max(Length * (1.f - Lip), 1.f);
+
+		float Height = 0.f;
+		for (const FNeonRamp& R : Ramps)
+		{
+			const float DX = X - R.Origin.X;
+			const float DY = Y - R.Origin.Y;
+			const float Along = DX * R.Dir.X + DY * R.Dir.Y;
+			const float Across = DX * -R.Dir.Y + DY * R.Dir.X;
+			if (Along < -Edge || Along > Length + Edge)
+			{
+				continue;
+			}
+			const float AW = FMath::Abs(Across);
+			if (AW > HalfW)
+			{
+				continue;
+			}
+
+			float Profile = 0.f;
+			if (Along > 0.f && Along < Climb)
+			{
+				Profile = FMath::SmoothStep(0.f, 1.f, Along / Climb);
+			}
+			else if (Along >= Climb && Along < Length)
+			{
+				Profile = 1.f - FMath::SmoothStep(0.f, 1.f, (Along - Climb) / FMath::Max(Length - Climb, 1.f));
+			}
+
+			float Side = 1.f;
+			if (AW > HalfW - Edge)
+			{
+				Side = 1.f - FMath::SmoothStep(0.f, 1.f, (AW - (HalfW - Edge)) / FMath::Max(Edge, 1.f));
+			}
+
+			float End = 1.f;
+			if (Along < 0.f)
+			{
+				End = 1.f - FMath::SmoothStep(0.f, 1.f, -Along / Edge);
+			}
+			else if (Along > Length)
+			{
+				End = 1.f - FMath::SmoothStep(0.f, 1.f, (Along - Length) / Edge);
+			}
+
+			Height += Arena.LaunchRampHeight * Profile * Side * End;
+		}
+		return Height;
+	}
+}
 
 float ANeonArena::LocalFloorHeight(float LocalX, float LocalY) const
 {
 	if (TierCount <= 0 || TierHeight <= 0.f)
 	{
-		return 0.f;
+		return LaunchRampHeightAt(*this, LocalX, LocalY);
 	}
 
 	const float AbsX = FMath::Clamp(FMath::Abs(LocalX), 0.f, HalfExtents.X);
@@ -308,7 +391,7 @@ float ANeonArena::LocalFloorHeight(float LocalX, float LocalY) const
 		const float T = FMath::Clamp((Inset - Foot) / Ramp, 0.f, 1.f);
 		Height += TierHeight * FMath::SmoothStep(0.f, 1.f, T);
 	}
-	return Height;
+	return Height + LaunchRampHeightAt(*this, LocalX, LocalY);
 }
 
 float ANeonArena::GetFloorHeight(FVector2D WorldXY) const
@@ -403,6 +486,43 @@ void ANeonArena::BuildTerrainMesh()
 		Terrain->CreateMeshSection_LinearColor(1, Lips.Vertices, Lips.Triangles, Lips.Normals, Lips.UVs, Lips.Colors, Lips.Tangents, false);
 	}
 
+	// Chevron strips along each launch ramp so the deck reads from the low follow camera.
+	if (bLaunchRamps && LaunchRampHeight > 0.f)
+	{
+		FSectionBuilder Marks;
+		FNeonRamp Ramps[4];
+		CollectLaunchRamps(*this, Ramps);
+		const float Climb = LaunchRampLength * (1.f - FMath::Clamp(LaunchRampLipFraction, 0.05f, 0.5f));
+		const FVector Up = FVector::UpVector;
+		constexpr int32 StripeCount = 6;
+		for (const FNeonRamp& R : Ramps)
+		{
+			const FVector2D Perp(-R.Dir.Y, R.Dir.X);
+			for (int32 i = 0; i < StripeCount; ++i)
+			{
+				const float T0 = Climb * (static_cast<float>(i) + 0.15f) / StripeCount;
+				const float T1 = Climb * (static_cast<float>(i) + 0.55f) / StripeCount;
+				const FVector2D A = R.Origin + R.Dir * T0;
+				const FVector2D B = R.Origin + R.Dir * T1;
+				constexpr float Half = 70.f;
+				auto Point = [&](const FVector2D& Q, float Side)
+				{
+					const FVector2D W = Q + Perp * Side;
+					return FVector(W.X, W.Y, LocalFloorHeight(W.X, W.Y) + 16.f);
+				};
+				const int32 I0 = Marks.AddVertex(Point(A, -Half), Up, FVector2D(0.f, 0.f));
+				const int32 I1 = Marks.AddVertex(Point(B, -Half), Up, FVector2D(1.f, 0.f));
+				const int32 I2 = Marks.AddVertex(Point(A, Half), Up, FVector2D(0.f, 1.f));
+				const int32 I3 = Marks.AddVertex(Point(B, Half), Up, FVector2D(1.f, 1.f));
+				Marks.AddQuad(I0, I1, I2, I3);
+			}
+		}
+		if (Marks.Vertices.Num() > 0)
+		{
+			Terrain->CreateMeshSection_LinearColor(2, Marks.Vertices, Marks.Triangles, Marks.Normals, Marks.UVs, Marks.Colors, Marks.Tangents, false);
+		}
+	}
+
 	if (PlaceholderMaterial)
 	{
 		Terrain->SetMaterial(0, PlaceholderMaterial);
@@ -414,6 +534,14 @@ void ANeonArena::BuildTerrainMesh()
 		if (UMaterialInstanceDynamic* LipMID = Terrain->CreateAndSetMaterialInstanceDynamic(1))
 		{
 			LipMID->SetVectorParameterValue(TEXT("Color"), WallColor);
+		}
+		if (bLaunchRamps && LaunchRampHeight > 0.f)
+		{
+			Terrain->SetMaterial(2, PlaceholderMaterial);
+			if (UMaterialInstanceDynamic* RampMID = Terrain->CreateAndSetMaterialInstanceDynamic(2))
+			{
+				RampMID->SetVectorParameterValue(TEXT("Color"), LaunchRampColor);
+			}
 		}
 	}
 
@@ -457,7 +585,9 @@ void ANeonArena::LayoutWalls(const FVector2D& Half)
 	// Engine cube is 100 cm. The walls stand on Z = 0 and are tall enough to clear every tier, so a wall
 	// that has moved onto the pyramid never floats above the raised floor.
 	const float TotalTierRise = FMath::Max(TierCount, 0) * FMath::Max(TierHeight, 0.f);
-	const float Height = WallHeight + TotalTierRise;
+	// Tall enough that a jump or a ramp launch does not visually clear the boundary.
+	const float LaunchClearance = bLaunchRamps ? LaunchRampHeight + 500.f : 200.f;
+	const float Height = WallHeight + TotalTierRise + LaunchClearance;
 	const float HalfWallZ = Height * 0.5f;
 	const float LongX = (Half.X * 2.f + WallThickness) / 100.f;
 	const float LongY = (Half.Y * 2.f + WallThickness) / 100.f;

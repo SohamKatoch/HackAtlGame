@@ -170,8 +170,9 @@ void ANeonAIController::Tick(float DeltaTime)
 		RecentTurn = RecentTurn * FMath::Exp(-DeltaTime / 3.f) + Delta;
 	}
 
-	// The activate request is a one-frame pulse; the movement component latches its rising edge.
+	// The activate and jump requests are one-frame pulses; the movement component latches the rising edge.
 	CurrentInput.bActivatePowerup = false;
+	CurrentInput.bJump = false;
 
 	bool bDecide = TimeToNextDecision <= 0.f;
 	bool bEmergency = false;
@@ -198,9 +199,21 @@ void ANeonAIController::Tick(float DeltaTime)
 		{
 			TimeSinceEmergency = 0.f;
 		}
+		// Dump the jump when the plan just broke or nothing survives. The meter is the only limiter.
+		if (Movement->CanJump() && (bEmergency || State == EState::Doomed || State == EState::Avoid))
+		{
+			CurrentInput.bJump = true;
+		}
 	}
 
 	CurrentInput.Steering = ExecutePlan();
+	// One press when the bar is full and the last decision called for it. The burst then runs itself.
+	CurrentInput.bSprint = false;
+	if (bCommitSprint && Movement->CanSprint() && CommittedTurnRemaining() < 12.f)
+	{
+		CurrentInput.bSprint = true;
+		bCommitSprint = false;
+	}
 	Movement->SetInput(CurrentInput);
 }
 
@@ -293,6 +306,20 @@ void ANeonAIController::Decide(bool bEmergency)
 			- P.StraightBias * FMath::Abs(Steering)
 			- Loop
 			+ (bContinuation ? P.CommitBias : 0.f);
+
+		// A pickup already in the neighborhood outweighs a merely tidy line, as long as the plan lives.
+		if (bWantPickup && S.bSurvives)
+		{
+			const float NowDist = (PickupPos - M.GetSimPosition()).Size();
+			constexpr float NearRange = 2600.f;
+			if (NowDist < NearRange)
+			{
+				const float EndDist = (PickupPos - S.EndPos).Size();
+				const float Closer = FMath::Clamp((NowDist - EndDist) / FMath::Max(NowDist, 1.f), 0.f, 1.f);
+				const float Near = 1.f - NowDist / NearRange;
+				S.Score += (1.5f + 0.35f * P.CollectWeight) * Closer * Near;
+			}
+		}
 	};
 
 	// Continuation of the committed plan first (straight counts as its own continuation).
@@ -363,6 +390,10 @@ void ANeonAIController::Decide(bool bEmergency)
 	const FPlanSample& Pick = Samples[Chosen];
 	Committed = Pick.Plan;
 	CurrentInput.bActivatePowerup = ShouldActivatePowerup(M, P, Pick, bEmergency, Survivors.Num());
+	// Spend the sprint bar on a clean straight or a real cut, not on every cruise.
+	bCommitSprint = Pick.bSurvives
+		&& FMath::Abs(Pick.Plan.Steering) < 0.25f
+		&& (Pick.Openness > 0.6f || Pick.Chase > 0.55f);
 
 	// State label (logging / later HUD). The decision itself is the scoring above.
 	EState NewState;
@@ -555,8 +586,23 @@ FVector2D ANeonAIController::DirectionFromHeading(float HeadingDeg)
 
 float ANeonAIController::PredictedSpeed(const UNeonMovementComponent& M) const
 {
-	const float Speed = M.GetCurrentSpeed();
-	return Speed > KINDA_SMALL_NUMBER ? Speed : M.GetConfig()->BaseSpeed;
+	const UNeonVehicleConfig* C = M.GetConfig();
+	float Speed = M.GetCurrentSpeed();
+	if (Speed <= KINDA_SMALL_NUMBER)
+	{
+		Speed = C->BaseSpeed;
+	}
+	// Only plan the fast line when a burst is available or already running. A cooling bar is cruise speed.
+	if (M.CanSprint())
+	{
+		float Boost = 1.f;
+		if (const UNeonPowerupComponent* Powerups = M.GetPowerups())
+		{
+			Boost = Powerups->GetSpeedMultiplier();
+		}
+		Speed = FMath::Max(Speed, C->BaseSpeed * Boost * C->SprintSpeedMultiplier);
+	}
+	return Speed;
 }
 
 float ANeonAIController::FullSteerTurnRateDeg(const UNeonMovementComponent& M, float Speed) const
@@ -569,6 +615,10 @@ float ANeonAIController::FullSteerTurnRateDeg(const UNeonMovementComponent& M, f
 	if (const UNeonPowerupComponent* Powerups = M.GetPowerups())
 	{
 		Rate *= FMath::Clamp(Powerups->GetTurnRateMultiplier(), 0.01f, 1.f);
+	}
+	if (M.IsSprinting() || M.CanSprint())
+	{
+		Rate *= C->SprintTurnMultiplier;
 	}
 	if (C->MinTurnRadius > KINDA_SMALL_NUMBER)
 	{
@@ -926,7 +976,9 @@ float ANeonAIController::ScoreCollect(const FNeonAIDifficultyParams& P, const FP
 	// Alignment with the pickup, scaled up as it gets closer so the AI actually commits to the last stretch.
 	const float Alignment = 0.5f * (FVector2D::DotProduct(DirectionFromHeading(Sample.EndHeading), ToPickup) + 1.f);
 	const float Proximity = 1.f - FMath::Clamp(Dist / FMath::Max(P.CollectRange, 1.f), 0.f, 1.f);
-	return Alignment * (0.5f + 0.5f * Proximity);
+	// Inside ~20 m the pickup is the plan. Farther out it stays a nudge.
+	const float Near = FMath::Clamp(1.f - Dist / 2000.f, 0.f, 1.f);
+	return Alignment * (0.35f + 0.3f * Proximity + 1.35f * Near);
 }
 
 bool ANeonAIController::ShouldActivatePowerup(const UNeonMovementComponent& M, const FNeonAIDifficultyParams& P, const FPlanSample& Pick, bool bEmergency, int32 SurvivorCount)

@@ -78,6 +78,12 @@ void UNeonMovementComponent::SetInput(const FNeonVehicleInput& InInput)
 		bActivateLatched = true;
 	}
 	bLastActivateInput = PendingInput.bActivatePowerup;
+
+	if (PendingInput.bJump && !bLastJumpInput)
+	{
+		bJumpLatched = true;
+	}
+	bLastJumpInput = PendingInput.bJump;
 }
 
 void UNeonMovementComponent::SetArenaBounds(const FBox2D& InBounds)
@@ -130,6 +136,19 @@ void UNeonMovementComponent::ResetSimulation(const FVector& WorldLocation, float
 	Accumulator = 0.f;
 	bAlive = true;
 	bActivateLatched = false;
+	bJumpLatched = false;
+	bLastJumpInput = false;
+	bAirborne = false;
+	VerticalVelocity = 0.f;
+	PeakClimbVz = 0.f;
+	TimeSinceClimb = 1.f;
+	SimZ = WorldLocation.Z;
+	PrevSimZ = SimZ;
+	SprintMeter = 1.f;
+	JumpMeter = 1.f;
+	SprintTimeLeft = 0.f;
+	bSprintingApplied = false;
+	bSprintHeld = false;
 
 	if (Trail)
 	{
@@ -170,6 +189,10 @@ float UNeonMovementComponent::ComputeTurnRateDegrees(float Speed) const
 	{
 		TurnMult *= Powerups->GetTurnRateMultiplier(); // Boost / Overdrive / EMP
 	}
+	if (bSprintingApplied)
+	{
+		TurnMult *= C->SprintTurnMultiplier;
+	}
 
 	float TurnRateDeg = C->MaxTurnRate * TurnMult;
 
@@ -181,6 +204,55 @@ float UNeonMovementComponent::ComputeTurnRateDegrees(float Speed) const
 	}
 
 	return TurnRateDeg;
+}
+
+bool UNeonMovementComponent::CanJump() const
+{
+	return bAlive && !bAirborne && JumpMeter + KINDA_SMALL_NUMBER >= GetConfig()->JumpCost;
+}
+
+bool UNeonMovementComponent::CanSprint() const
+{
+	return bAlive && SprintTimeLeft <= 0.f && SprintMeter >= 0.98f;
+}
+
+float UNeonMovementComponent::GetSprintMeter() const
+{
+	const UNeonVehicleConfig* C = GetConfig();
+	if (SprintTimeLeft > 0.f && C->SprintBurstSeconds > KINDA_SMALL_NUMBER)
+	{
+		return FMath::Clamp(SprintTimeLeft / C->SprintBurstSeconds, 0.f, 1.f);
+	}
+	return SprintMeter;
+}
+
+void UNeonMovementComponent::UpdateMeters(float Dt)
+{
+	const UNeonVehicleConfig* C = GetConfig();
+
+	// Rising edge only. Holding the key after a burst does not start the next one early.
+	const bool bRisingSprint = PendingInput.bSprint && !bSprintHeld;
+	bSprintHeld = PendingInput.bSprint;
+
+	if (SprintTimeLeft > 0.f)
+	{
+		SprintTimeLeft = FMath::Max(0.f, SprintTimeLeft - Dt);
+		bSprintingApplied = SprintTimeLeft > 0.f;
+	}
+	else if (bRisingSprint && SprintMeter >= 0.98f)
+	{
+		// The whole bar is the stake. Releasing early does not refund it.
+		SprintMeter = 0.f;
+		SprintTimeLeft = C->SprintBurstSeconds;
+		bSprintingApplied = true;
+	}
+	else
+	{
+		bSprintingApplied = false;
+		SprintMeter = FMath::Min(1.f, SprintMeter + C->SprintRechargePerSecond * Dt);
+	}
+
+	JumpMeter = FMath::Min(C->JumpCost, JumpMeter + C->JumpRechargePerSecond * Dt);
 }
 
 float UNeonMovementComponent::GetCurrentTurnRadius() const
@@ -232,6 +304,7 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 
 	PrevSimPosition = SimPosition;
 	PrevSimHeading = SimHeading;
+	PrevSimZ = SimZ;
 
 	// Powerups: effects count down and a latched activation is attempted, before this step's physics.
 	if (Powerups)
@@ -240,8 +313,14 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 	}
 	bActivateLatched = false;
 
-	// Speed. MVP is constant cruise unless a powerup overrides it.
+	UpdateMeters(Dt);
+
+	// Cruise, unless sprint and/or a powerup override it. Sprint stacks with Boost.
 	float SpeedMult = SpeedMultiplier;
+	if (bSprintingApplied)
+	{
+		SpeedMult *= C->SprintSpeedMultiplier;
+	}
 	if (Powerups)
 	{
 		SpeedMult *= Powerups->GetSpeedMultiplier(); // Boost / Overdrive
@@ -278,19 +357,96 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 			SimPosition = NewPosition;
 			PrevSimPosition = NewPosition;
 			PrevSimHeading = SimHeading;
+			PrevSimZ = SimZ;
 			++SimulationTick;
 			Eliminate(ENeonEliminationCause::Boundary);
 			return;
 		}
 	}
 
-	// Trails and other vehicles. Phase and Shield are applied inside CheckHazards.
+	// Height. Grounded sticks to the floor. A jump, or a lip after a real climb, goes ballistic.
+	const bool bWasAirborne = bAirborne;
+	const ANeonArena* Arena = HeightSource.Get();
+	if (Arena)
+	{
+		const float Floor = Arena->GetFloorHeight(NewPosition) + FloorOffset;
+		const float FloorHere = Arena->GetFloorHeight(SimPosition) + FloorOffset;
+		const float Dist = (NewPosition - SimPosition).Size();
+		const float Slope = Dist > 1.f ? (Floor - FloorHere) / Dist : 0.f;
+
+		if (!bAirborne)
+		{
+			if (Slope > 0.08f)
+			{
+				PeakClimbVz = FMath::Max(PeakClimbVz, CurrentSpeed * Slope);
+				TimeSinceClimb = 0.f;
+			}
+			else
+			{
+				TimeSinceClimb += Dt;
+				if (TimeSinceClimb > 0.45f)
+				{
+					PeakClimbVz = 0.f;
+				}
+			}
+
+			if (bJumpLatched && JumpMeter + KINDA_SMALL_NUMBER >= C->JumpCost)
+			{
+				JumpMeter = FMath::Max(0.f, JumpMeter - C->JumpCost);
+				bAirborne = true;
+				VerticalVelocity = C->JumpImpulse;
+				SimZ = FloorHere;
+				PeakClimbVz = 0.f;
+			}
+			else if (Slope < C->LaunchDropSlope && PeakClimbVz >= C->LaunchMinUpSpeed)
+			{
+				bAirborne = true;
+				VerticalVelocity = PeakClimbVz * C->LaunchCarry;
+				SimZ = FloorHere;
+				PeakClimbVz = 0.f;
+			}
+			else
+			{
+				SimZ = Floor;
+				VerticalVelocity = CurrentSpeed * Slope;
+			}
+		}
+
+		if (bAirborne)
+		{
+			VerticalVelocity -= C->Gravity * Dt;
+			SimZ += VerticalVelocity * Dt;
+			if (SimZ <= Floor)
+			{
+				SimZ = Floor;
+				VerticalVelocity = 0.f;
+				bAirborne = false;
+				PeakClimbVz = 0.f;
+				TimeSinceClimb = 1.f;
+			}
+		}
+	}
+	else
+	{
+		SimZ = FloorZ;
+		bAirborne = false;
+	}
+
+	// A grounded tap is spent even when the meter is short, so it does not fire a second later.
+	// A press in the air stays latched and fires on landing.
+	if (!bWasAirborne)
+	{
+		bJumpLatched = false;
+	}
+
+	// Trails are safe while the whole step stays in the air. Landing checks the touchdown segment.
 	ENeonEliminationCause Cause = ENeonEliminationCause::None;
-	if (CheckHazards(SimPosition, NewPosition, Cause))
+	if (CheckHazards(SimPosition, NewPosition, bAirborne, Cause))
 	{
 		SimPosition = NewPosition;
 		PrevSimPosition = NewPosition;
 		PrevSimHeading = SimHeading;
+		PrevSimZ = SimZ;
 		++SimulationTick;
 		Eliminate(Cause);
 		return;
@@ -299,7 +455,7 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 	SimPosition = NewPosition;
 	++SimulationTick;
 
-	// Emit trail from the rear of the vehicle, after the move has been accepted.
+	// The wall keeps drawing through a jump. Air only skips trail hits; it does not pause the laser.
 	if (Trail)
 	{
 		const FVector2D RearPoint = SimPosition - Direction * C->TrailRearOffset;
@@ -307,7 +463,7 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 	}
 }
 
-bool UNeonMovementComponent::CheckHazards(const FVector2D& From, const FVector2D& To, ENeonEliminationCause& OutCause)
+bool UNeonMovementComponent::CheckHazards(const FVector2D& From, const FVector2D& To, bool bIgnoreTrails, ENeonEliminationCause& OutCause)
 {
 	if (!Collision)
 	{
@@ -319,9 +475,9 @@ bool UNeonMovementComponent::CheckHazards(const FVector2D& From, const FVector2D
 
 	FNeonTrailHit Hit;
 	const int32 SelfIgnoreAfterTick = SimulationTick - C->SelfTrailGraceTicks;
-	// Phase ignores trails outright; a Shield charge absorbs the first hit and grants a few pass-through ticks.
+	// Air and Phase ignore trails. A Shield charge absorbs the first hit and grants a few pass-through ticks.
 	const bool bPhased = Powerups && Powerups->IsPhased();
-	if (!bPhased && Collision->SweepAgainstTrails(From, To, R, PlayerSlot, SelfIgnoreAfterTick, Hit))
+	if (!bIgnoreTrails && !bPhased && Collision->SweepAgainstTrails(From, To, R, PlayerSlot, SelfIgnoreAfterTick, Hit))
 	{
 		if (!(Powerups && Powerups->TryAbsorbTrailHit()))
 		{
@@ -332,9 +488,13 @@ bool UNeonMovementComponent::CheckHazards(const FVector2D& From, const FVector2D
 
 	if (UNeonMovementComponent* Other = Collision->FindVehicleOverlap(this, To, R))
 	{
-		OutCause = ENeonEliminationCause::Vehicle;
-		Other->ForceEliminate(ENeonEliminationCause::Vehicle);
-		return true;
+		// A bike in the air clears another bike. Same height still trades.
+		if (FMath::Abs(SimZ - Other->GetSimZ()) <= C->AirCollisionHeight)
+		{
+			OutCause = ENeonEliminationCause::Vehicle;
+			Other->ForceEliminate(ENeonEliminationCause::Vehicle);
+			return true;
+		}
 	}
 
 	return false;
@@ -351,15 +511,18 @@ void UNeonMovementComponent::ApplyInterpolatedTransform(float Alpha)
 	const FVector2D Pos = FMath::Lerp(PrevSimPosition, SimPosition, Alpha);
 	const float Yaw = PrevSimHeading + FRotator::NormalizeAxis(SimHeading - PrevSimHeading) * Alpha;
 
-	float Z = FloorZ;
+	float Z = FMath::Lerp(PrevSimZ, SimZ, Alpha);
 	float Pitch = 0.f;
 	float Roll = 0.f;
 
-	// Terrain is presentation only (D25): Z and tilt are derived from the 2D position after the step.
-	if (const ANeonArena* Arena = HeightSource.Get())
+	if (bAirborne)
 	{
-		Z = Arena->GetFloorHeight(Pos) + FloorOffset;
-
+		// Nose follows the ballistic arc. The camera still inherits yaw only.
+		const float Speed = FMath::Max(CurrentSpeed, 1.f);
+		Pitch = FMath::RadiansToDegrees(FMath::Atan2(VerticalVelocity, Speed));
+	}
+	else if (const ANeonArena* Arena = HeightSource.Get())
+	{
 		if (bAlignToFloor)
 		{
 			const FVector N = Arena->GetFloorNormal(Pos);
@@ -389,6 +552,17 @@ void UNeonMovementComponent::Eliminate(ENeonEliminationCause Cause)
 
 	bAlive = false;
 	AppliedSteering = 0.f;
+	bSprintingApplied = false;
+	if (bAirborne)
+	{
+		if (const ANeonArena* Arena = HeightSource.Get())
+		{
+			SimZ = Arena->GetFloorHeight(SimPosition) + FloorOffset;
+		}
+		PrevSimZ = SimZ;
+		bAirborne = false;
+		VerticalVelocity = 0.f;
+	}
 	ApplyInterpolatedTransform(1.f);
 
 	if (Trail)

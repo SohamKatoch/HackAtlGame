@@ -89,6 +89,62 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lean", meta = (ClampMin = "0.1"))
 	float LeanReturnSpeed = 7.f;
 
+	// ---- Sprint (DECISIONS.md D29). A full bar is one committed burst, then a long refill. ----
+
+	/** Speed multiplier during the burst. Stacks with Boost. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sprint", meta = (ClampMin = "1"))
+	float SprintSpeedMultiplier = 1.85f;
+
+	/** Turn-rate multiplier during the burst, before the radius clamp. The wide line is the risk. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sprint", meta = (ClampMin = "0.1", ClampMax = "1"))
+	float SprintTurnMultiplier = 0.55f;
+
+	/** How long one full-bar sprint lasts, seconds. The bar must be full to start it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sprint", meta = (ClampMin = "0.2"))
+	float SprintBurstSeconds = 0.85f;
+
+	/** Fraction restored per second after the burst. ~22 s from empty back to a full bar. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sprint", meta = (ClampMin = "0.01"))
+	float SprintRechargePerSecond = 0.045f;
+
+	// ---- Jump meter and air (D29) ----
+
+	/** Fraction of the jump meter one hop spends. 1 = the bar must be full, and the hop empties it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float JumpCost = 1.f;
+
+	/** Fraction restored per second, on the ground and in the air. ~22 s from empty back to a hop. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.01"))
+	float JumpRechargePerSecond = 0.045f;
+
+	/** Upward speed added by a jump, cm/s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "100"))
+	float JumpImpulse = 1050.f;
+
+	/** Downward acceleration in the air, cm/s^2. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "100"))
+	float Gravity = 2400.f;
+
+	/**
+	 * A ramp launches the bike when the climb built at least this much upward speed (cm/s)
+	 * and the floor then drops away. Cruise on the gentle pyramid stays glued; sprinting off
+	 * a tier, and every authored launch ramp, clears it.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0"))
+	float LaunchMinUpSpeed = 820.f;
+
+	/** Floor slope (rise/run) below this, after a climb, counts as a lip. Negative. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMax = "0"))
+	float LaunchDropSlope = -0.2f;
+
+	/** Two vehicles farther apart than this on Z do not collide. A hop clears a bike. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "20"))
+	float AirCollisionHeight = 180.f;
+
+	/** Fraction of the climb's upward speed kept when leaving a lip. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0", ClampMax = "1.5"))
+	float LaunchCarry = 0.9f;
+
 	// Powerup multipliers (Boost, Overdrive, EMP) live on UNeonPowerupConfig since Milestone 4.
 
 	/** Piecewise-linear lean curve through (0,0), (1/3, Low), (2/3, Mid), (1, High), capped by MaxLeanAngle. */

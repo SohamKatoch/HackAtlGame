@@ -20,6 +20,7 @@
 #include "Powerups/NeonPowerupComponent.h"
 #include "Trail/NeonCollisionSystem.h"
 #include "UI/NeonUIStyle.h"
+#include "Vehicle/NeonMovementComponent.h"
 #include "Vehicle/NeonVehiclePawn.h"
 
 #define LOCTEXT_NAMESPACE "NeonGrid"
@@ -117,6 +118,14 @@ void UNeonHUDWidget::BuildTree()
 		RoundText = NeonUI::MakeText(WidgetTree, FText::GetEmpty(), 22, NeonUI::Dim);
 		Top->AddChildToVerticalBox(RoundText)->SetHorizontalAlignment(HAlign_Center);
 
+		SpeedText = NeonUI::MakeText(WidgetTree, FText::GetEmpty(), 64, NeonUI::Accent);
+		{
+			UVerticalBoxSlot* S = Top->AddChildToVerticalBox(SpeedText);
+			S->SetHorizontalAlignment(HAlign_Center);
+			S->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f));
+		}
+		SpeedText->SetVisibility(ESlateVisibility::Collapsed);
+
 		CollapseText = NeonUI::MakeText(WidgetTree, FText::GetEmpty(), 26, NeonUI::Warning);
 		{
 			UVerticalBoxSlot* S = Top->AddChildToVerticalBox(CollapseText);
@@ -134,9 +143,34 @@ void UNeonHUDWidget::BuildTree()
 		PanelBorder->AddChild(AliveText);
 	}
 
-	// ---- Center stack: big line, small line, results standings, results buttons ----
+	// ---- Corner brackets ----
+	{
+		const FVector2D Anchors[4] = { {0.f, 0.f}, {1.f, 0.f}, {0.f, 1.f}, {1.f, 1.f} };
+		const FVector2D Offsets[4] = { {18.f, 18.f}, {-18.f, 18.f}, {18.f, -18.f}, {-18.f, -18.f} };
+		for (int32 i = 0; i < 4; ++i)
+		{
+			UTextBlock* Tick = NeonUI::MakeText(WidgetTree, FText::FromString(TEXT("+")), 42, NeonUI::Accent);
+			Tick->SetRenderOpacity(0.55f);
+			Place(Tick, Anchors[i], Offsets[i]);
+			CornerBrackets.Add(Tick);
+		}
+	}
+
+	// ---- Center stack: boot title, big line, small line, results ----
 	UVerticalBox* Center = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
-	Place(Center, FVector2D(0.5f, 0.5f), FVector2D(0.f, -40.f));
+	Place(Center, FVector2D(0.5f, 0.42f), FVector2D::ZeroVector);
+
+	BootTitle = NeonUI::MakeText(WidgetTree, LOCTEXT("BootTitle", "NEON GRID"), 72, NeonUI::Accent);
+	Center->AddChildToVerticalBox(BootTitle)->SetHorizontalAlignment(HAlign_Center);
+	BootTitle->SetVisibility(ESlateVisibility::Collapsed);
+
+	BootSub = NeonUI::MakeText(WidgetTree, LOCTEXT("BootSub", "LIGHT CYCLE  //  ENGAGE"), 18, NeonUI::Text);
+	{
+		UVerticalBoxSlot* S = Center->AddChildToVerticalBox(BootSub);
+		S->SetHorizontalAlignment(HAlign_Center);
+		S->SetPadding(FMargin(0.f, 6.f, 0.f, 18.f));
+	}
+	BootSub->SetVisibility(ESlateVisibility::Collapsed);
 
 	CenterBig = NeonUI::MakeText(WidgetTree, FText::GetEmpty(), 84, NeonUI::Accent);
 	Center->AddChildToVerticalBox(CenterBig)->SetHorizontalAlignment(HAlign_Center);
@@ -221,6 +255,52 @@ void UNeonHUDWidget::BuildTree()
 
 		PanelBorder->SetVisibility(ESlateVisibility::Collapsed);
 	}
+
+	auto MakeMeter = [&](const FText& Name, const FText& Hint, const FVector2D& Anchor, const FVector2D& Offset,
+		TObjectPtr<UWidget>& OutPanel, TObjectPtr<UTextBlock>& OutLabel, TObjectPtr<UProgressBar>& OutBar, const FLinearColor& Fill)
+	{
+		UBorder* PanelBorder = NeonUI::MakePanel(WidgetTree, FMargin(16.f, 10.f), 4.f);
+		OutPanel = PanelBorder;
+		Place(PanelBorder, Anchor, Offset);
+
+		USizeBox* Box = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+		Box->SetWidthOverride(240.f);
+		PanelBorder->AddChild(Box);
+
+		UVerticalBox* Stack = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+		Box->AddChild(Stack);
+
+		OutLabel = NeonUI::MakeText(WidgetTree, Name, 18, Fill);
+		OutLabel->SetJustification(ETextJustify::Left);
+		Stack->AddChildToVerticalBox(OutLabel)->SetHorizontalAlignment(HAlign_Left);
+
+		UTextBlock* HintText = NeonUI::MakeText(WidgetTree, Hint, 12, NeonUI::Dim, false);
+		HintText->SetJustification(ETextJustify::Left);
+		{
+			UVerticalBoxSlot* S = Stack->AddChildToVerticalBox(HintText);
+			S->SetHorizontalAlignment(HAlign_Left);
+			S->SetPadding(FMargin(0.f, 2.f, 0.f, 0.f));
+		}
+
+		USizeBox* BarBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+		BarBox->SetHeightOverride(10.f);
+		OutBar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass());
+		OutBar->SetPercent(1.f);
+		OutBar->SetFillColorAndOpacity(Fill);
+		BarBox->AddChild(OutBar);
+		{
+			UVerticalBoxSlot* S = Stack->AddChildToVerticalBox(BarBox);
+			S->SetHorizontalAlignment(HAlign_Fill);
+			S->SetPadding(FMargin(0.f, 8.f, 0.f, 0.f));
+		}
+
+		PanelBorder->SetVisibility(ESlateVisibility::Collapsed);
+	};
+
+	MakeMeter(LOCTEXT("Sprint", "SPRINT"), LOCTEXT("SprintKey", "SHIFT  —  FULL BAR"), FVector2D(0.f, 1.f), FVector2D(28.f, -28.f),
+		SprintPanel, SprintLabel, SprintBar, NeonUI::Warning);
+	MakeMeter(LOCTEXT("Jump", "JUMP"), LOCTEXT("JumpKey", "CTRL / F  —  FULL BAR"), FVector2D(1.f, 1.f), FVector2D(-28.f, -28.f),
+		JumpPanel, JumpLabel, JumpBar, NeonUI::Accent);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +334,8 @@ void UNeonHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	UpdateTopCenter(*GS);
 	UpdateCenter(*GS, LocalPS);
 	UpdatePowerupPanel(*GS);
+	UpdateRideHUD(*GS);
+	UpdateBoot(*GS);
 }
 
 const UNeonPowerupComponent* UNeonHUDWidget::FindLocalPowerups() const
@@ -261,6 +343,107 @@ const UNeonPowerupComponent* UNeonHUDWidget::FindLocalPowerups() const
 	const APlayerController* PC = GetOwningPlayer();
 	const ANeonVehiclePawn* Vehicle = PC ? Cast<ANeonVehiclePawn>(PC->GetPawn()) : nullptr;
 	return Vehicle ? Vehicle->GetPowerups() : nullptr;
+}
+
+const UNeonMovementComponent* UNeonHUDWidget::FindLocalMovement() const
+{
+	const APlayerController* PC = GetOwningPlayer();
+	const ANeonVehiclePawn* Vehicle = PC ? Cast<ANeonVehiclePawn>(PC->GetPawn()) : nullptr;
+	return Vehicle ? Vehicle->GetMovement() : nullptr;
+}
+
+void UNeonHUDWidget::UpdateRideHUD(const ANeonGameState& GS)
+{
+	const ENeonMatchPhase Phase = GS.GetPhase();
+	const bool bInRound = Phase == ENeonMatchPhase::Countdown || Phase == ENeonMatchPhase::Playing;
+	const UNeonMovementComponent* Movement = FindLocalMovement();
+	const bool bShow = bInRound && Movement && Movement->IsAlive();
+
+	auto ShowPanel = [](UWidget* Panel, bool bVisible)
+	{
+		if (Panel)
+		{
+			Panel->SetVisibility(bVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
+	};
+	ShowPanel(SprintPanel, bShow);
+	ShowPanel(JumpPanel, bShow);
+
+	if (SpeedText)
+	{
+		if (bShow)
+		{
+			// Same shape as the reference readout: cruise sits near 87.
+			const float Shown = Movement->GetCurrentSpeed() / 16.f;
+			SpeedText->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), Shown)));
+			const FLinearColor Color = Movement->IsAirborne() ? NeonUI::Accent : (Movement->IsSprinting() ? NeonUI::Warning : NeonUI::Text);
+			SpeedText->SetColorAndOpacity(FSlateColor(Color));
+			SpeedText->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			SpeedText->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+
+	if (!bShow || !Movement)
+	{
+		return;
+	}
+
+	if (SprintBar)
+	{
+		SprintBar->SetPercent(Movement->GetSprintMeter());
+		SprintBar->SetFillColorAndOpacity(Movement->IsSprinting() ? NeonUI::Warning : FLinearColor(1.f, 0.55f, 0.15f, 0.85f));
+	}
+	if (SprintLabel)
+	{
+		SprintLabel->SetColorAndOpacity(FSlateColor(Movement->IsSprinting() ? NeonUI::Warning : NeonUI::Text));
+	}
+	if (JumpBar)
+	{
+		JumpBar->SetPercent(Movement->GetJumpMeter());
+		JumpBar->SetFillColorAndOpacity(Movement->IsAirborne() ? NeonUI::Accent : FLinearColor(0.1f, 0.9f, 1.f, 0.85f));
+	}
+	if (JumpLabel)
+	{
+		JumpLabel->SetColorAndOpacity(FSlateColor(Movement->CanJump() ? NeonUI::Accent : NeonUI::Dim));
+	}
+}
+
+void UNeonHUDWidget::UpdateBoot(const ANeonGameState& GS)
+{
+	const ENeonMatchPhase Phase = GS.GetPhase();
+	const bool bCountdown = Phase == ENeonMatchPhase::Countdown;
+	const bool bFade = Phase == ENeonMatchPhase::Playing && TimeInPhase < 1.15f;
+	const bool bShow = bCountdown || bFade;
+	const float Opacity = bCountdown ? (0.82f + 0.18f * FMath::Sin(Pulse * 5.f)) : FMath::Clamp(1.f - TimeInPhase / 1.15f, 0.f, 1.f);
+	const float Scale = bCountdown ? (1.04f + 0.06f * FMath::Sin(Pulse * 3.f)) : 1.f;
+
+	auto Apply = [&](UWidget* W)
+	{
+		if (!W)
+		{
+			return;
+		}
+		W->SetVisibility(bShow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		W->SetRenderOpacity(Opacity);
+		W->SetRenderScale(FVector2D(Scale));
+	};
+	Apply(BootTitle);
+	Apply(BootSub);
+
+	const float Bracket = (bCountdown || Phase == ENeonMatchPhase::Playing)
+		? (0.35f + 0.25f * (0.5f + 0.5f * FMath::Sin(Pulse * 4.f)))
+		: 0.f;
+	for (UWidget* Tick : CornerBrackets)
+	{
+		if (Tick)
+		{
+			Tick->SetRenderOpacity(Bracket);
+			Tick->SetVisibility(Bracket > 0.02f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
+	}
 }
 
 const ANeonArena* UNeonHUDWidget::FindArena() const
