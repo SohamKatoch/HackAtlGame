@@ -157,6 +157,11 @@ void UNeonPowerupSpawner::ResolvePickups()
 			{
 				continue;
 			}
+			// Same floor only: a bike driving under a deck leaves the pickup sitting on top of it.
+			if (FMath::Abs(M->GetSimZ() - P->GetActorLocation().Z) > 220.f)
+			{
+				continue;
+			}
 			UNeonPowerupComponent* Inventory = M->GetPowerups();
 			if (!Inventory || !Inventory->CanCollect())
 			{
@@ -173,7 +178,7 @@ void UNeonPowerupSpawner::ResolvePickups()
 	}
 }
 
-bool UNeonPowerupSpawner::FindSpawnPoint(FVector2D& OutPoint)
+bool UNeonPowerupSpawner::FindSpawnPoint(FVector2D& OutPoint, float& OutFloorZ)
 {
 	const ANeonArena* A = Arena.Get();
 	UWorld* World = GetWorld();
@@ -221,13 +226,24 @@ bool UNeonPowerupSpawner::FindSpawnPoint(FVector2D& OutPoint)
 	{
 		bool bOk = true;
 
-		if (!A->HasFloorOnLayer(P, 0))
+		// Top-most floor at this point. Under a deck the pickup would be hidden, so the deck itself is the spawn surface.
+		float TopZ = 0.f;
+		bool bHasFloor = false;
+		for (int32 Layer = A->GetHighestFloorLayer(); Layer >= 0; --Layer)
+		{
+			if (A->TryGetFloorHeightOnLayer(P, Layer, TopZ))
+			{
+				bHasFloor = true;
+				break;
+			}
+		}
+		if (!bHasFloor)
 		{
 			continue;
 		}
 		FNeonTrailHit Hit;
-		const float GroundZ = A->GetFloorHeightOnLayer(P, 0) + A->VehicleSpawnHeight;
-		if (Collision->SweepAgainstTrails(P, P, C->MinDistanceFromTrails, INDEX_NONE, 0, Hit, GroundZ, GroundZ, 90.f))
+		const float SweepZ = TopZ + A->VehicleSpawnHeight;
+		if (Collision->SweepAgainstTrails(P, P, C->MinDistanceFromTrails, INDEX_NONE, 0, Hit, SweepZ, SweepZ, 90.f))
 		{
 			continue; // inside or beside a trail
 		}
@@ -255,6 +271,7 @@ bool UNeonPowerupSpawner::FindSpawnPoint(FVector2D& OutPoint)
 		if (bOk)
 		{
 			OutPoint = P;
+			OutFloorZ = TopZ;
 			return true;
 		}
 	}
@@ -277,7 +294,8 @@ void UNeonPowerupSpawner::TrySpawn()
 	}
 
 	FVector2D Point;
-	if (!FindSpawnPoint(Point))
+	float FloorZ = 0.f;
+	if (!FindSpawnPoint(Point, FloorZ))
 	{
 		UE_LOG(LogNeonGrid, Verbose, TEXT("No clear powerup spawn point this attempt."));
 		return;
@@ -285,7 +303,7 @@ void UNeonPowerupSpawner::TrySpawn()
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	const FVector Location(Point.X, Point.Y, A->GetFloorHeight(Point));
+	const FVector Location(Point.X, Point.Y, FloorZ);
 	ANeonPowerupPickup* Pickup = World->SpawnActor<ANeonPowerupPickup>(PickupClass, FTransform(Location), Params);
 	if (!Pickup)
 	{

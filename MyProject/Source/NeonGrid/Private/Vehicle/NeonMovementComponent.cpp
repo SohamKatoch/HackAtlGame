@@ -339,23 +339,42 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 	const FVector2D Direction(FMath::Cos(HeadingRad), FMath::Sin(HeadingRad));
 	FVector2D NewPosition = SimPosition + Direction * CurrentSpeed * Dt;
 
-	// Boundary. Read live: the rectangle shrinks during the collapse (D27).
+	// Boundary. The rectangle shrinks during the collapse (D27). On The Hex the boundary is the hexagon.
 	if (bHasArenaBounds)
 	{
 		const float R = C->CollisionRadius;
-		const FBox2D Bounds = GetArenaBounds();
-		const FVector2D InnerMin = Bounds.Min + FVector2D(R, R);
-		const FVector2D InnerMax = Bounds.Max - FVector2D(R, R);
-
-		const bool bInside =
-			NewPosition.X >= InnerMin.X && NewPosition.X <= InnerMax.X &&
-			NewPosition.Y >= InnerMin.Y && NewPosition.Y <= InnerMax.Y;
+		const ANeonArena* BoundsArena = HeightSource.Get();
+		const bool bInside = BoundsArena
+			? BoundsArena->IsInsideBounds(NewPosition, R)
+			: GetArenaBounds().IsInside(NewPosition);
 
 		if (!bInside)
 		{
 			// Park the vehicle on the wall so the hit reads clearly, then eliminate.
-			NewPosition.X = FMath::Clamp(NewPosition.X, InnerMin.X, InnerMax.X);
-			NewPosition.Y = FMath::Clamp(NewPosition.Y, InnerMin.Y, InnerMax.Y);
+			if (BoundsArena)
+			{
+				FVector2D Inside = SimPosition;
+				FVector2D Outside = NewPosition;
+				for (int32 Step = 0; Step < 8; ++Step)
+				{
+					const FVector2D Mid = (Inside + Outside) * 0.5f;
+					if (BoundsArena->IsInsideBounds(Mid, R))
+					{
+						Inside = Mid;
+					}
+					else
+					{
+						Outside = Mid;
+					}
+				}
+				NewPosition = Inside;
+			}
+			else
+			{
+				const FBox2D Bounds = GetArenaBounds();
+				NewPosition.X = FMath::Clamp(NewPosition.X, Bounds.Min.X + R, Bounds.Max.X - R);
+				NewPosition.Y = FMath::Clamp(NewPosition.Y, Bounds.Min.Y + R, Bounds.Max.Y - R);
+			}
 			SimPosition = NewPosition;
 			PrevSimPosition = NewPosition;
 			PrevSimHeading = SimHeading;
@@ -424,29 +443,40 @@ void UNeonMovementComponent::StepSimulation(float Dt)
 			VerticalVelocity -= C->Gravity * Dt;
 			SimZ += VerticalVelocity * Dt;
 
-			if (VerticalVelocity > 0.f && Arena->HitsCeiling(NewPosition, PrevZ, SimZ))
+			float CeilingZ = 0.f;
+			if (VerticalVelocity > 0.f && Arena->HitsCeiling(NewPosition, PrevZ, SimZ, CeilingZ))
 			{
-				SimPosition = NewPosition;
-				PrevSimPosition = NewPosition;
-				PrevSimHeading = SimHeading;
-				PrevSimZ = SimZ;
-				++SimulationTick;
-				Eliminate(ENeonEliminationCause::Boundary);
-				return;
+				SimZ = CeilingZ - 40.f;
+				VerticalVelocity = -200.f;
 			}
 
-			const int32 LandLayer = Arena->ResolveLayerAt(NewPosition, SimZ, SimLayer);
-			float LandZ = 0.f;
-			if (Arena->TryGetFloorHeightOnLayer(NewPosition, LandLayer, LandZ) && SimZ <= LandZ + FloorOffset)
+			float BestSurface = -1.e12f;
+			int32 BestLayer = INDEX_NONE;
+			const int32 MaxLayer = Arena->GetHighestFloorLayer();
+			for (int32 Layer = 0; Layer <= MaxLayer; ++Layer)
 			{
-				SimZ = LandZ + FloorOffset;
+				float H = 0.f;
+				if (!Arena->TryGetFloorHeightOnLayer(NewPosition, Layer, H))
+				{
+					continue;
+				}
+				const float Surface = H + FloorOffset;
+				if (PrevZ + 8.f >= Surface && SimZ <= Surface && Surface > BestSurface)
+				{
+					BestSurface = Surface;
+					BestLayer = Layer;
+				}
+			}
+			if (BestLayer != INDEX_NONE)
+			{
+				SimZ = BestSurface;
 				VerticalVelocity = 0.f;
 				bAirborne = false;
-				SimLayer = LandLayer;
+				SimLayer = BestLayer;
 				PeakClimbVz = 0.f;
 				TimeSinceClimb = 1.f;
 			}
-			else if (SimZ < Arena->GetActorLocation().Z - 400.f)
+			else if (SimZ < Arena->GetActorLocation().Z - 1600.f)
 			{
 				SimPosition = NewPosition;
 				PrevSimPosition = NewPosition;

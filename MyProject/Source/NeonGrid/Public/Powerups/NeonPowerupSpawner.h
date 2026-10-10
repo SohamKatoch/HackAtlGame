@@ -51,7 +51,8 @@ protected:
 private:
 	const UNeonPowerupConfig* GetConfig() const;
 	void TrySpawn();
-	bool FindSpawnPoint(FVector2D& OutPoint);
+	/** Picks a clear point and the Z of the top-most floor there, so pickups sit on upper decks instead of under them. */
+	bool FindSpawnPoint(FVector2D& OutPoint, float& OutFloorZ);
 	void ResolvePickups();
 	void ExpirePickups(float DeltaTime);
 

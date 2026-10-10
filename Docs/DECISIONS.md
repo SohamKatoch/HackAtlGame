@@ -274,3 +274,20 @@ D25 stays the floor function. It is no longer presentation-only.
 - The Grid, The Cross, and The Corners each have a second floor reached by connector ramps. Driving under that floor on the ground is legal.
 - The Hex is four stacked hexagon decks (ground plus three floors), each smaller, linked by one-way ramps on alternating faces. It is the first layout in the rotation so a match opens on it. Driving off a deck falls; falling out of the world is a wall hit. Jumping into a deck underside is a wall hit.
 - Vehicles track `SimLayer`. Trails still use `SimZ`, so a laser on floor 2 does not kill a bike on the ground.
+
+## D31 — Readable bridges, open ramp mouths, pickups on the right floor
+
+**Status:** Accepted (playtest: rim walls on The Hex looked solid where you could drive through; ramp undersides were black; pickups bobbed under upper decks; the bridge surface read as one flat cyan slab)
+
+- Deck rims are flat glowing bands on the floor, with a gap cut where a ramp arrives. There is no vertical rim wall anywhere. Hex ramps meet each deck on the middle of a face.
+- A connector ramp is a dark deck with cyan stripes and two raised cyan rails along its edges, plus solid side skirts down to the floor it leaves from. Its surface color matches the deck tops so the stripes and rails are the texture.
+- `ANeonArena` carries a second fill directional light from the opposite side, slightly below the horizon, so skirts and the back faces of ramps stay lit.
+- Pickups spawn on the top-most floor at their point and are collected only by a bike within 220 cm of that height. The AI only chases pickups on its own floor. The beacon pillar is 660 cm so it stays under the deck above.
+
+## D32 — The Hex is a hexagon
+
+**Status:** Accepted (playtest: spawns and the blue walls broke The Hex)
+
+- The four rectangular walls are hidden on The Hex. Six blue walls follow the ground hex and close in along that hex during the collapse. Driving into one is the boundary, same as the rectangle on the other maps.
+- The ground hex fills that boundary. Spawns sit on the open ring outside the deck above and off the three ramps, facing the middle. AI spawns use the same ring, and fall back to those four points.
+- The blue skirt around each deck still has a gap where a ramp arrives.

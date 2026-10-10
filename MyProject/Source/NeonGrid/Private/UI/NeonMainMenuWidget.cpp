@@ -157,7 +157,7 @@ void UNeonMainMenuWidget::BuildTree()
 	CollapseOffButton = AddOption(WidgetTree, CollapseRow, LOCTEXT("Off", "OFF"));
 
 	AddRow(Solo, NeonUI::MakeText(WidgetTree, LOCTEXT("Arena", "ARENA"), 20, NeonUI::Dim), 22.f);
-	ArenaText = NeonUI::MakeText(WidgetTree, LOCTEXT("TheGrid", "ROTATES EACH ROUND: THE HEX, THE GRID, THE CROSS, THE CORNERS"), 18, NeonUI::Text);
+	ArenaText = NeonUI::MakeText(WidgetTree, LOCTEXT("TheGrid", "THE GRID"), 18, NeonUI::Text);
 	ArenaText->SetAutoWrapText(true);
 	AddRow(Solo, ArenaText, 6.f);
 
