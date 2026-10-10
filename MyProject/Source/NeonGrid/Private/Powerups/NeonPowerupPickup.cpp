@@ -31,8 +31,8 @@ ANeonPowerupPickup::ANeonPowerupPickup()
 	Orb->SetRelativeScale3D(FVector(1.1f)); // engine sphere is 100 cm
 
 	Beacon = MakeMesh(TEXT("Beacon"));
-	Beacon->SetRelativeLocation(FVector(0.f, 0.f, 600.f));
-	Beacon->SetRelativeScale3D(FVector(0.12f, 0.12f, 12.f)); // thin 1200 cm pillar
+	Beacon->SetRelativeLocation(FVector(0.f, 0.f, 330.f));
+	Beacon->SetRelativeScale3D(FVector(0.12f, 0.12f, 6.6f)); // thin 660 cm pillar, short enough to stay under the deck above
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereFinder(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube.Cube"));

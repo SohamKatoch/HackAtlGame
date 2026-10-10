@@ -65,11 +65,11 @@ public:
 
 	/** Distance behind the vehicle, cm. */
 	UPROPERTY(EditDefaultsOnly, Category = "Neon|Camera", meta = (ClampMin = "100"))
-	float CameraDistance = 650.f;
+	float CameraDistance = 360.f;
 
 	/** Height of the camera pivot above the vehicle, cm. */
 	UPROPERTY(EditDefaultsOnly, Category = "Neon|Camera", meta = (ClampMin = "0"))
-	float CameraHeight = 190.f;
+	float CameraHeight = 110.f;
 
 	/** Downward tilt in degrees. Small values look along the floor; larger ones look down at the car. */
 	UPROPERTY(EditDefaultsOnly, Category = "Neon|Camera", meta = (ClampMin = "0", ClampMax = "60"))

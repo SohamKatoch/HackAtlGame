@@ -566,7 +566,7 @@ void ANeonGameMode::BeginCountdown()
 		Arena->LaunchRampLength = 2800.f;
 		Arena->LaunchRampHalfWidth = 1200.f;
 		Arena->LaunchRampLipFraction = 0.5f;
-		Arena->SetLayout(GS->GetRoundNumber() - 1);
+		Arena->SetLayout(1);
 	}
 	ResetVehiclesToSpawn();
 	SetAllFrozen(true);

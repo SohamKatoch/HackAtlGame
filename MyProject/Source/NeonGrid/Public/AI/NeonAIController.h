@@ -160,6 +160,9 @@ protected:
 	/** Lethal test for one predicted step at TimeAhead seconds in the future. See class comment. */
 	bool IsStepLethal(const UNeonMovementComponent& M, const FNeonAIDifficultyParams& P, float Radius, const FVector2D& From, const FVector2D& To, float TimeAhead) const;
 
+	/** A trail is in front of the bike. Walls and deck edges do not count; a jump does not clear those. */
+	bool TrailBlocksAhead(const UNeonMovementComponent& M) const;
+
 	/** Degrees of the committed turn still to perform (0 when in the straight phase). */
 	float CommittedTurnRemaining() const;
 	/** Steering to apply right now for the committed plan. */

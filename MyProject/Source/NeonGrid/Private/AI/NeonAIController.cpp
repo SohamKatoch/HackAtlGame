@@ -201,7 +201,8 @@ void ANeonAIController::Tick(float DeltaTime)
 			TimeSinceEmergency = 0.f;
 		}
 		// Dump the jump when the plan just broke or nothing survives. The meter is the only limiter.
-		if (Movement->CanJump() && (bEmergency || State == EState::Doomed || State == EState::Avoid))
+		// A nearby wall is a turn, not a jump. Jump only when a trail is actually in front.
+		if (Movement->CanJump() && (bEmergency || State == EState::Doomed || State == EState::Avoid) && TrailBlocksAhead(*Movement))
 		{
 			CurrentInput.bJump = true;
 		}
@@ -628,21 +629,30 @@ float ANeonAIController::FullSteerTurnRateDeg(const UNeonMovementComponent& M, f
 	return Rate;
 }
 
+bool ANeonAIController::TrailBlocksAhead(const UNeonMovementComponent& M) const
+{
+	if (!Collision)
+	{
+		return false;
+	}
+	const UNeonVehicleConfig* C = M.GetConfig();
+	const FVector2D From = M.GetSimPosition();
+	const FVector2D To = From + DirectionFromHeading(M.GetHeading()) * M.GetCurrentSpeed() * 0.65f;
+	FNeonTrailHit Hit;
+	const int32 SelfIgnoreAfterTick = M.GetSimulationTick() - C->SelfTrailGraceTicks;
+	return Collision->SweepAgainstTrails(From, To, C->CollisionRadius, M.GetPlayerSlot(), SelfIgnoreAfterTick, Hit,
+		M.GetSimZ(), M.GetSimZ(), C->TrailVerticalRadius);
+}
+
 bool ANeonAIController::IsStepLethal(const UNeonMovementComponent& M, const FNeonAIDifficultyParams& P, float Radius, const FVector2D& From, const FVector2D& To, float TimeAhead) const
 {
-	// Boundary, where it will be at TimeAhead (the walls move during the collapse, D27).
-	if (M.HasArenaBounds())
+	if (const ANeonArena* Arena = ANeonArena::FindArena(GetWorld()))
 	{
-		const FBox2D B = M.GetArenaBoundsAt(TimeAhead);
-		if (To.X < B.Min.X + Radius || To.X > B.Max.X - Radius ||
-			To.Y < B.Min.Y + Radius || To.Y > B.Max.Y - Radius)
+		// Boundary, where it will be at TimeAhead (the walls move during the collapse, D27). A hex on The Hex.
+		if (M.HasArenaBounds() && !Arena->IsInsideBoundsAt(To, Radius, TimeAhead))
 		{
 			return true;
 		}
-	}
-
-	if (const ANeonArena* Arena = ANeonArena::FindArena(GetWorld()))
-	{
 		const float Heading = FMath::RadiansToDegrees(FMath::Atan2(To.Y - From.Y, To.X - From.X));
 		if (Arena->IsWrongWayApproach(From, To, Heading, M.GetSimLayer(), M.GetSimZ()))
 		{
@@ -655,6 +665,15 @@ bool ANeonAIController::IsStepLethal(const UNeonMovementComponent& M, const FNeo
 			{
 				return true;
 			}
+		}
+	}
+	else if (M.HasArenaBounds())
+	{
+		const FBox2D B = M.GetArenaBoundsAt(TimeAhead);
+		if (To.X < B.Min.X + Radius || To.X > B.Max.X - Radius ||
+			To.Y < B.Min.Y + Radius || To.Y > B.Max.Y - Radius)
+		{
+			return true;
 		}
 	}
 
@@ -964,6 +983,11 @@ bool ANeonAIController::FindNearestPickup(const UNeonMovementComponent& M, const
 	{
 		const ANeonPowerupPickup* Pickup = *It;
 		if (!IsValid(Pickup) || Pickup->GetPowerupType() == ENeonPowerupType::None)
+		{
+			continue;
+		}
+		// Only pickups on this bike's floor. One on a deck above or below is out of reach from here.
+		if (FMath::Abs(Pickup->GetActorLocation().Z - M.GetSimZ()) > 220.f)
 		{
 			continue;
 		}

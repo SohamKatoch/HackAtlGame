@@ -17,10 +17,8 @@ class UMaterialInstanceDynamic;
  * Owns the gameplay rectangle, four inward-facing spawn points, a fixed whole-arena camera, and
  * cosmetic terrain/wall meshes. The meshes have no collision; the movement step uses GetBounds().
  *
- * Terrain (DECISIONS.md D25, D29, D30): a stepped pyramid, one-way ramps, and stacked decks.
- * GetFloorHeight() is the layer-0 surface. Upper floors are queried with GetFloorHeightOnLayer().
- * A ramp is rideable only in its authored direction; the other way is a wall. Rounds cycle four
- * layouts (The Grid, The Cross, The Corners, The Hex). The Hex is four stacked hexagon decks.
+ * Terrain is one flat floor with four one-way hills. No stacked decks and no stepped pyramid.
+ * A hill is rideable only in its authored direction; the other way is a wall.
  *
  * Collapse (DECISIONS.md D27): the playable rectangle shrinks toward the center during a round.
  * After CollapseStartDelay seconds of play the half extents interpolate linearly from HalfExtents to
@@ -98,12 +96,12 @@ public:
 
 	// ---- Ramps (D29). Added on top of the pyramid. A hill you ride, not a jump. ----
 
-	/** How many authored layouts rounds cycle through. */
-	static constexpr int32 LayoutCount = 4;
+	/** Kept so a round index still resolves. Play uses The Grid only. */
+	static constexpr int32 LayoutCount = 1;
 
-	/** Which layout is live. 0 Hex, 1 Grid, 2 Cross, 3 Corners. Rounds advance this. */
+	/** Which layout is live. Play is The Grid (1). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Neon|Terrain")
-	int32 ActiveLayout = 0;
+	int32 ActiveLayout = 1;
 
 	bool IsHexLayout() const { return ActiveLayout == 0; }
 
@@ -188,6 +186,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Neon|Arena")
 	FBox2D GetBoundsAt(float SecondsAhead) const;
 
+	/** Radius of the hex boundary for a given rectangle. The six walls and the kill line use this on The Hex. */
+	float GetHexWallRadius(FVector2D Half) const;
+
+	/** True when WorldXY is inside the live boundary, inset by Padding. A hex on The Hex, the rectangle otherwise. */
+	bool IsInsideBounds(FVector2D WorldXY, float Padding) const;
+
+	/** Same test, SecondsAhead into the collapse. */
+	bool IsInsideBoundsAt(FVector2D WorldXY, float Padding, float SecondsAhead) const;
+
 	// ---- Collapse state (authority writes; everyone reads) ----
 
 	/** Seconds since GO this round, or a negative value outside a round. Set by the game mode every frame. */
@@ -262,8 +269,8 @@ public:
 	/** Highest authored deck index for the live layout (0 = ground only). */
 	int32 GetHighestFloorLayer() const;
 
-	/** True when a rising jump from BelowZ to AboveZ would hit the underside of a deck. */
-	bool HitsCeiling(FVector2D WorldXY, float BelowZ, float AboveZ) const;
+	/** True when a rising move from BelowZ to AboveZ meets a deck. OutCeilingZ is the underside. */
+	bool HitsCeiling(FVector2D WorldXY, float BelowZ, float AboveZ, float& OutCeilingZ) const;
 
 	/** Swap the authored layout and rebuild the floor. Index wraps. */
 	UFUNCTION(BlueprintCallable, Category = "Neon|Terrain")
@@ -310,6 +317,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Neon|Cosmetic")
 	TObjectPtr<UDirectionalLightComponent> DevLight;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Neon|Cosmetic")
+	TObjectPtr<UDirectionalLightComponent> DevFillLight;
+
 private:
 	/** Height in local (actor-relative) XY. */
 	float LocalFloorHeight(float LocalX, float LocalY) const;
@@ -318,6 +328,9 @@ private:
 	void BuildTerrainMesh();
 	void LayoutCosmetics();
 	void LayoutWalls(const FVector2D& Half);
+
+	/** Section 10 of the terrain mesh, the six closing walls on The Hex. */
+	UMaterialInstanceDynamic* HexWallMID = nullptr;
 	void LayoutCamera();
 	void TintMesh(UMeshComponent* Mesh, const FLinearColor& Color) const;
 	void TintWalls(const FLinearColor& Color);
