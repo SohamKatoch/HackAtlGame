@@ -166,7 +166,7 @@ void UNeonMainMenuWidget::BuildTree()
 	// Header: system line, title, subtitle, rule.
 	AddRow(Column, NeonUI::MakeCaps(WidgetTree, LOCTEXT("SysLine", "SYSTEM   //   ONLINE"), 12, NeonUI::Line, 6), 0.f)->SetHorizontalAlignment(HAlign_Left);
 	{
-		UTextBlock* Title = NeonUI::MakeDisplay(WidgetTree, LOCTEXT("Title", "LIGHTBIKE"), 56, NeonUI::Highlight, 6);
+		UTextBlock* Title = NeonUI::MakeDisplay(WidgetTree, LOCTEXT("Title", "BLUESHIFT"), 56, NeonUI::Highlight, 6);
 		Title->SetJustification(ETextJustify::Left);
 		AddRow(Column, Title, 8.f)->SetHorizontalAlignment(HAlign_Left);
 	}

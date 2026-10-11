@@ -275,7 +275,7 @@ void UNeonHUDWidget::BuildTree()
 	Center->AddChildToVerticalBox(BootTitle)->SetHorizontalAlignment(HAlign_Center);
 	BootTitle->SetVisibility(ESlateVisibility::Collapsed);
 
-	BootSub = NeonUI::MakeText(WidgetTree, LOCTEXT("BootSub", "LIGHTBIKE"), 14, NeonUI::Accent);
+	BootSub = NeonUI::MakeText(WidgetTree, LOCTEXT("BootSub", "BLUESHIFT"), 14, NeonUI::Accent);
 	{
 		UVerticalBoxSlot* S = Center->AddChildToVerticalBox(BootSub);
 		S->SetHorizontalAlignment(HAlign_Center);
