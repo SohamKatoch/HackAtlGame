@@ -116,6 +116,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Neon|Lan")
 	void RequestJoinLanGame(int32 SearchIndex);
 
+	/** Host tells a remote player where their bike is. Their machine does not get movement replication. */
+	void SendPoseToClient(FVector Location, float Yaw, int32 SimTick);
+
 	/** Host starts a LAN match: humans only, no AI fill. */
 	UFUNCTION(BlueprintCallable, Category = "Neon|Lan")
 	void RequestStartLanMatch(const FNeonMatchSettings& Settings);
@@ -124,8 +127,24 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void ReceivedPlayer() override;
 	virtual void SetupInputComponent() override;
 	virtual void OnPossess(APawn* InPawn) override;
+	virtual void AcknowledgePossession(APawn* P) override;
+
+	/** Tell the host what to show in the lobby. The server's computer name is not the client's. */
+	UFUNCTION(Server, Reliable)
+	void ServerSetLobbyName(const FString& Name);
+
+	/** Latest controls. Unreliable: the next frame replaces a dropped packet. */
+	UFUNCTION(Server, Unreliable)
+	void ServerSendInput(FNeonVehicleInput Input);
+
+	/** Owning clients do not receive pawn movement replication. The host pushes the pose and the sim tick it belongs to. */
+	UFUNCTION(Client, Unreliable)
+	void ClientApplyPose(FVector Location, float Yaw, int32 SimTick);
+
+	void SubmitLobbyName();
 
 	UFUNCTION(Server, Reliable)
 	void ServerStartSoloMatch(const FNeonMatchSettings& Settings);
@@ -146,6 +165,7 @@ protected:
 	void ApplyPhaseUI(ENeonMatchPhase Phase);
 	void ViewArena();
 	void ViewVehicle(ANeonVehiclePawn* Vehicle, float BlendTime);
+	void ViewPossessedVehicle(ANeonVehiclePawn* Vehicle);
 
 	void UpdateSpectating();
 	void StopSpectating(bool bViewOwnPawn);

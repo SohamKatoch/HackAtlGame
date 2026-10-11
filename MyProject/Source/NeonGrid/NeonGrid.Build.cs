@@ -22,7 +22,8 @@ public class NeonGrid : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"OnlineSubsystem",
-			"OnlineSubsystemUtils"
+			"OnlineSubsystemUtils",
+			"Sockets"
 		});
 	}
 }

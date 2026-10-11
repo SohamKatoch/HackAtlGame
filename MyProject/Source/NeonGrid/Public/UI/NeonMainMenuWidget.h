@@ -9,6 +9,7 @@ class UButton;
 class UTextBlock;
 class UWidgetSwitcher;
 class UEditableTextBox;
+class UVerticalBox;
 
 /**
  * Main menu, Solo menu, and LAN host/join (guide sections 60, 61). Three pages in one widget:
@@ -32,6 +33,10 @@ public:
 	/** Show the first page. Called when the menu becomes visible. */
 	UFUNCTION(BlueprintCallable, Category = "Neon|Menu")
 	void ShowMainPage();
+
+	/** Host and joined clients land here instead of the solo front page. */
+	UFUNCTION(BlueprintCallable, Category = "Neon|Menu")
+	void ShowLanPage();
 
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -70,7 +75,6 @@ protected:
 	UFUNCTION() void OnJoinFound2();
 	UFUNCTION() void OnJoinFound3();
 
-	void ShowLanPage();
 	void RefreshLanPage();
 	void JoinFound(int32 Index);
 
@@ -112,10 +116,17 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> LanBackButton;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UEditableTextBox> LanAddressBox;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> LanStatusText;
+	UPROPERTY(Transient) TObjectPtr<UWidget> LanBrowseLabel;
+	UPROPERTY(Transient) TObjectPtr<UWidget> LanAddressLabel;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> LanHostAddressText;
+	UPROPERTY(Transient) TObjectPtr<UVerticalBox> LanPilotBox;
+	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> LanPilotLabels;
 	UPROPERTY(Transient) TArray<TObjectPtr<UWidget>> LanGameRows;
 	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> LanGameLabels;
 	UPROPERTY(Transient) TArray<TObjectPtr<UButton>> LanGameJoinButtons;
 
 	FNeonMatchSettings Settings;
 	bool bBoundButtons = false;
+	float LanScanWait = 0.f;
+	FString LastAutofillAddress;
 };

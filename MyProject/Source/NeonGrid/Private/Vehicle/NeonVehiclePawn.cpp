@@ -34,6 +34,10 @@ ANeonVehiclePawn::ANeonVehiclePawn()
 	PrimaryActorTick.TickGroup = TG_PostPhysics;
 
 	AutoPossessAI = EAutoPossessAI::Disabled;
+	// The host simulates. A higher rate keeps remote bikes from stepping between updates.
+	SetNetUpdateFrequency(60.f);
+	SetMinNetUpdateFrequency(30.f);
+
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationRoll = false;
@@ -151,7 +155,67 @@ ANeonVehiclePawn::ANeonVehiclePawn()
 void ANeonVehiclePawn::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	SmoothRemotePose(DeltaTime);
 	UpdatePowerupVisuals(DeltaTime);
+}
+
+void ANeonVehiclePawn::PostNetReceiveLocationAndRotation()
+{
+	// The owning client predicts its own bike. This update is for everyone else's.
+	if (IsLocallyControlled())
+	{
+		return;
+	}
+	const FRepMovement& Rep = GetReplicatedMovement();
+	NoteRemotePose(Rep.Location, Rep.Rotation.Yaw);
+}
+
+void ANeonVehiclePawn::NoteRemotePose(FVector Location, float Yaw)
+{
+	const UWorld* World = GetWorld();
+	const double Now = World ? World->GetTimeSeconds() : 0.0;
+	if (bHasRemotePose)
+	{
+		const double Dt = FMath::Max(Now - RemotePoseTime, 1.0 / 240.0);
+		RemoteVelocity = (Location - RemoteLocation) / Dt;
+		RemoteYawRate = FRotator::NormalizeAxis(Yaw - RemoteYaw) / static_cast<float>(Dt);
+	}
+	else
+	{
+		RemoteVelocity = FVector::ZeroVector;
+		RemoteYawRate = 0.f;
+		SetActorLocationAndRotation(Location, FRotator(0.f, Yaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
+	}
+	RemoteLocation = Location;
+	RemoteYaw = Yaw;
+	RemotePoseTime = Now;
+	bHasRemotePose = true;
+}
+
+void ANeonVehiclePawn::SmoothRemotePose(float DeltaTime)
+{
+	if (!bHasRemotePose || HasAuthority() || IsLocallyControlled() || !GetWorld())
+	{
+		return;
+	}
+
+	const double Since = GetWorld()->GetTimeSeconds() - RemotePoseTime;
+	// Keep gliding at the last speed through a short gap, then hold rather than run off the track.
+	const double Predict = FMath::Min(FMath::Max(Since, 0.0), 0.05);
+	const FVector Desired = RemoteLocation + RemoteVelocity * Predict;
+	const float DesiredYaw = RemoteYaw + RemoteYawRate * static_cast<float>(Predict);
+
+	const FVector Current = GetActorLocation();
+	if (FVector::DistSquared(Current, Desired) > FMath::Square(500.f))
+	{
+		SetActorLocationAndRotation(Desired, FRotator(0.f, DesiredYaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
+		return;
+	}
+
+	const float Alpha = FMath::Clamp(DeltaTime * 60.f, 0.f, 1.f);
+	const FVector Location = FMath::Lerp(Current, Desired, Alpha);
+	const float Yaw = GetActorRotation().Yaw + FRotator::NormalizeAxis(DesiredYaw - GetActorRotation().Yaw) * Alpha;
+	SetActorLocationAndRotation(Location, FRotator(0.f, Yaw, 0.f), false, nullptr, ETeleportType::None);
 }
 
 void ANeonVehiclePawn::UpdatePowerupVisuals(float DeltaTime)
@@ -256,6 +320,14 @@ void ANeonVehiclePawn::SetPlayerSlot(int32 InSlot)
 	if (TrailRenderer)
 	{
 		TrailRenderer->SetOwnerId(InSlot);
+	}
+}
+
+void ANeonVehiclePawn::SetBodyVisible(bool bVisible)
+{
+	if (LeanRoot)
+	{
+		LeanRoot->SetVisibility(bVisible, true);
 	}
 }
 

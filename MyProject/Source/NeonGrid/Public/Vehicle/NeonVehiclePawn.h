@@ -47,6 +47,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Neon|Vehicle")
 	void SetPlayerSlot(int32 InSlot);
 
+	/** Hide or show the body. The server decides death; clients mirror it. */
+	void SetBodyVisible(bool bVisible);
+
 	UFUNCTION(BlueprintPure, Category = "Neon|Vehicle")
 	int32 GetPlayerSlot() const { return PlayerSlot; }
 
@@ -59,7 +62,11 @@ public:
 	/** Spectator / possession: turn this pawn's follow camera on or off. */
 	void SetFollowCameraActive(bool bActive);
 
+	/** Host pose for this bike. Clients move toward it instead of snapping on each packet. */
+	void NoteRemotePose(FVector Location, float Yaw);
+
 	virtual void Tick(float DeltaTime) override;
+	virtual void PostNetReceiveLocationAndRotation() override;
 
 	// ---- Follow camera (DECISIONS.md D21). Cosmetic, local-only; never read by the simulation. ----
 
@@ -157,4 +164,13 @@ private:
 	FLinearColor NoseColor = FLinearColor::White;
 	float PhaseBlinkTime = 0.f;
 	bool bPhaseBlinkHidden = false;
+
+	void SmoothRemotePose(float DeltaTime);
+
+	bool bHasRemotePose = false;
+	FVector RemoteLocation = FVector::ZeroVector;
+	float RemoteYaw = 0.f;
+	FVector RemoteVelocity = FVector::ZeroVector;
+	float RemoteYawRate = 0.f;
+	double RemotePoseTime = 0.0;
 };

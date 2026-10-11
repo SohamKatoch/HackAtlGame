@@ -112,6 +112,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Neon|Movement")
 	void SetFrozen(bool bInFrozen);
 
+	/** Client mirror of the server's alive flag. Does not decide the death. */
+	void MirrorAlive(bool bInAlive);
+
+	/**
+	 * Owning client: the host's bike at SimTick. Replay the inputs the host has not simulated yet
+	 * on top of that pose so steering stays immediate.
+	 */
+	void ReconcilePredictedPose(FVector Location, float Yaw, int32 ServerTick);
+
 	UFUNCTION(BlueprintPure, Category = "Neon|Movement")
 	bool IsFrozen() const { return bFrozen; }
 
@@ -198,12 +207,28 @@ protected:
 
 private:
 	void StepSimulation(float Dt);
+	void RecordCosmeticTrail();
 	void UpdateMeters(float Dt);
 	/** Returns true if the move From->To is lethal. Trail hits use Z, so a jump clears a lower laser. */
 	bool CheckHazards(const FVector2D& From, const FVector2D& To, float FromZ, float ToZ, ENeonEliminationCause& OutCause);
 	float ComputeTurnRateDegrees(float Speed) const;
 	void ApplyInterpolatedTransform(float Alpha);
 	void Eliminate(ENeonEliminationCause Cause);
+	void RememberPredictedStep();
+	void EnsurePredictedArena();
+	bool IsPredictedLocal() const;
+	bool IsMatchPlaying() const;
+
+	struct FNeonPredictedStep
+	{
+		int32 Tick = 0;
+		float Steering = 0.f;
+		float Speed = 0.f;
+		float TurnRateDeg = 0.f;
+	};
+
+	TArray<FNeonPredictedStep> PredictedSteps;
+	bool bPredictionSnapped = false;
 
 	FNeonVehicleInput PendingInput;
 
@@ -244,6 +269,8 @@ private:
 	float CurrentSpeed = 0.f;
 	float AppliedSteering = 0.f;
 	bool bAlive = true;
+	bool bHasCosmeticPoint = false;
+	FVector2D LastCosmeticPoint = FVector2D::ZeroVector;
 	bool bFrozen = false;
 	int32 SimulationTick = 0;
 

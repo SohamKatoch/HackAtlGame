@@ -6,6 +6,11 @@
 #include "Trail/NeonCollisionSystem.h"
 #include "Trail/NeonTrailComponent.h"
 #include "Vehicle/NeonVehicleConfig.h"
+#include "Core/NeonGameState.h"
+#include "Core/NeonPlayerController.h"
+#include "Core/NeonPlayerState.h"
+#include "EngineUtils.h"
+#include "Vehicle/NeonVehiclePawn.h"
 
 UNeonMovementComponent::UNeonMovementComponent()
 {
@@ -186,6 +191,32 @@ void UNeonMovementComponent::SetFrozen(bool bInFrozen)
 	}
 }
 
+void UNeonMovementComponent::MirrorAlive(bool bInAlive)
+{
+	if (!GetOwner() || GetOwner()->HasAuthority() || bAlive == bInAlive)
+	{
+		return;
+	}
+	bAlive = bInAlive;
+	if (ANeonVehiclePawn* Pawn = Cast<ANeonVehiclePawn>(GetOwner()))
+	{
+		Pawn->SetBodyVisible(bAlive);
+	}
+	if (!Trail)
+	{
+		return;
+	}
+	if (bAlive)
+	{
+		Trail->ResetTrail();
+		bHasCosmeticPoint = false;
+	}
+	else
+	{
+		Trail->StopTrail();
+	}
+}
+
 void UNeonMovementComponent::SetSpeedModifiers(float InSpeedMultiplier, float InTurnRateMultiplier)
 {
 	SpeedMultiplier = FMath::Max(InSpeedMultiplier, 0.01f);
@@ -277,6 +308,31 @@ void UNeonMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+	// Other people's bikes are drawn from the host. The owning client predicts its own.
+	if (AActor* Owner = GetOwner(); Owner && !Owner->HasAuthority() && !IsPredictedLocal())
+	{
+		RecordCosmeticTrail();
+		return;
+	}
+
+	if (IsPredictedLocal())
+	{
+		EnsurePredictedArena();
+		if (APawn* Pawn = Cast<APawn>(GetOwner()))
+		{
+			if (const ANeonPlayerState* PS = Pawn->GetPlayerState<ANeonPlayerState>())
+			{
+				MirrorAlive(PS->IsAlive());
+			}
+		}
+		if (!IsMatchPlaying())
+		{
+			Accumulator = 0.f;
+			ApplyInterpolatedTransform(1.f);
+			return;
+		}
+	}
+
 	const float Step = 1.f / static_cast<float>(FMath::Max(SimulationHz, 1));
 
 	if (bFrozen)
@@ -292,6 +348,10 @@ void UNeonMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	while (Accumulator >= Step && Steps < MaxStepsPerFrame)
 	{
 		StepSimulation(Step);
+		if (IsPredictedLocal())
+		{
+			RememberPredictedStep();
+		}
 		Accumulator -= Step;
 		++Steps;
 	}
@@ -303,6 +363,43 @@ void UNeonMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	}
 
 	ApplyInterpolatedTransform(bAlive ? FMath::Clamp(Accumulator / Step, 0.f, 1.f) : 1.f);
+}
+
+void UNeonMovementComponent::RecordCosmeticTrail()
+{
+	AActor* Owner = GetOwner();
+	APawn* Pawn = Cast<APawn>(Owner);
+	if (!Owner || !Pawn || !Trail)
+	{
+		return;
+	}
+
+	const ANeonPlayerState* PS = Cast<ANeonPlayerState>(Pawn->GetPlayerState());
+	if (PS)
+	{
+		Trail->SetOwnerId(PS->GetSlot());
+		MirrorAlive(PS->IsAlive());
+	}
+	if (!bAlive)
+	{
+		return;
+	}
+
+	const ANeonGameState* GS = GetWorld() ? GetWorld()->GetGameState<ANeonGameState>() : nullptr;
+	if (GS && GS->GetPhase() != ENeonMatchPhase::Playing)
+	{
+		return;
+	}
+
+	const FVector Loc = Owner->GetActorLocation();
+	const FVector2D Pos(Loc.X, Loc.Y);
+	if (bHasCosmeticPoint && FVector2D::DistSquared(Pos, LastCosmeticPoint) > FMath::Square(1500.f))
+	{
+		Trail->GapTrail();
+	}
+	bHasCosmeticPoint = true;
+	LastCosmeticPoint = Pos;
+	Trail->RecordPosition(Pos, Loc.Z, Owner->GetActorRotation().Yaw, 0);
 }
 
 void UNeonMovementComponent::StepSimulation(float Dt)
@@ -674,11 +771,137 @@ void UNeonMovementComponent::ApplyInterpolatedTransform(float Alpha)
 		}
 	}
 
-	Owner->SetActorLocationAndRotation(FVector(Pos.X, Pos.Y, Z), FRotator(Pitch, Yaw, Roll), false, nullptr, ETeleportType::TeleportPhysics);
+	const FVector Location(Pos.X, Pos.Y, Z);
+	Owner->SetActorLocationAndRotation(Location, FRotator(Pitch, Yaw, Roll), false, nullptr, ETeleportType::TeleportPhysics);
+
+	// Owning clients predict locally. The host still sends the authoritative pose and the tick it belongs to.
+	if (Owner->HasAuthority())
+	{
+		if (APawn* Pawn = Cast<APawn>(Owner))
+		{
+			if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(Pawn->GetController()))
+			{
+				if (!PC->IsLocalController())
+				{
+					PC->SendPoseToClient(FVector(SimPosition.X, SimPosition.Y, SimZ), SimHeading, SimulationTick);
+				}
+			}
+		}
+	}
+}
+
+bool UNeonMovementComponent::IsPredictedLocal() const
+{
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	return Pawn && !Pawn->HasAuthority() && Pawn->IsLocallyControlled();
+}
+
+bool UNeonMovementComponent::IsMatchPlaying() const
+{
+	const UWorld* World = GetWorld();
+	const ANeonGameState* GS = World ? World->GetGameState<ANeonGameState>() : nullptr;
+	return GS && GS->GetPhase() == ENeonMatchPhase::Playing;
+}
+
+void UNeonMovementComponent::EnsurePredictedArena()
+{
+	if (HeightSource.IsValid() || !GetWorld())
+	{
+		return;
+	}
+	for (TActorIterator<ANeonArena> It(GetWorld()); It; ++It)
+	{
+		SetArena(*It);
+		break;
+	}
+}
+
+void UNeonMovementComponent::RememberPredictedStep()
+{
+	FNeonPredictedStep Step;
+	Step.Tick = SimulationTick;
+	Step.Steering = AppliedSteering;
+	Step.Speed = CurrentSpeed;
+	Step.TurnRateDeg = ComputeTurnRateDegrees(CurrentSpeed);
+	PredictedSteps.Add(Step);
+	const int32 MaxSteps = FMath::Max(SimulationHz * 2, 32);
+	if (PredictedSteps.Num() > MaxSteps)
+	{
+		PredictedSteps.RemoveAt(0, PredictedSteps.Num() - MaxSteps);
+	}
+}
+
+void UNeonMovementComponent::ReconcilePredictedPose(FVector Location, float Yaw, int32 ServerTick)
+{
+	if (!IsPredictedLocal())
+	{
+		return;
+	}
+
+	const FVector2D ServerPos(Location.X, Location.Y);
+	if (!IsMatchPlaying() || !bPredictionSnapped)
+	{
+		SimPosition = ServerPos;
+		PrevSimPosition = ServerPos;
+		SimHeading = Yaw;
+		PrevSimHeading = Yaw;
+		SimZ = Location.Z;
+		PrevSimZ = Location.Z;
+		SimulationTick = ServerTick;
+		PredictedSteps.Reset();
+		bPredictionSnapped = IsMatchPlaying();
+		ApplyInterpolatedTransform(1.f);
+		return;
+	}
+
+	// Start from the host pose, then reapply the inputs it has not simulated yet.
+	FVector2D Pos = ServerPos;
+	float Heading = Yaw;
+	const float Dt = 1.f / static_cast<float>(FMath::Max(SimulationHz, 1));
+	bool bReplayed = false;
+	for (const FNeonPredictedStep& Step : PredictedSteps)
+	{
+		if (Step.Tick <= ServerTick)
+		{
+			continue;
+		}
+		Heading = FRotator::NormalizeAxis(Heading + Step.Steering * Step.TurnRateDeg * Dt);
+		const float HeadingRad = FMath::DegreesToRadians(Heading);
+		Pos += FVector2D(FMath::Cos(HeadingRad), FMath::Sin(HeadingRad)) * Step.Speed * Dt;
+		bReplayed = true;
+	}
+
+	PredictedSteps.RemoveAll([ServerTick](const FNeonPredictedStep& Step)
+	{
+		return Step.Tick <= ServerTick;
+	});
+
+	const float ErrorSq = FVector2D::DistSquared(Pos, SimPosition);
+	const float YawError = FMath::Abs(FRotator::NormalizeAxis(Heading - SimHeading));
+	if (bReplayed && ErrorSq < FMath::Square(20.f) && YawError < 1.5f)
+	{
+		return;
+	}
+	if (ErrorSq > FMath::Square(1500.f))
+	{
+		SimZ = Location.Z;
+		PrevSimZ = Location.Z;
+	}
+
+	SimPosition = Pos;
+	PrevSimPosition = Pos;
+	SimHeading = Heading;
+	PrevSimHeading = Heading;
+	ApplyInterpolatedTransform(1.f);
 }
 
 void UNeonMovementComponent::Eliminate(ENeonEliminationCause Cause)
 {
+	// Death is the host's decision. A predicted bike stops on a wall without ending the round locally.
+	if (AActor* Owner = GetOwner(); Owner && !Owner->HasAuthority())
+	{
+		return;
+	}
 	if (!bAlive)
 	{
 		return;

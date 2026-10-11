@@ -73,4 +73,8 @@ struct NEONGRID_API FNeonLanGame
 
 	UPROPERTY(BlueprintReadOnly, Category = "Neon|Lan")
 	int32 SearchIndex = 0;
+
+	/** IP or IP:port. Empty when the browse result did not resolve. */
+	UPROPERTY(BlueprintReadOnly, Category = "Neon|Lan")
+	FString Address;
 };

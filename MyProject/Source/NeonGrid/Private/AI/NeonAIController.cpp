@@ -55,6 +55,26 @@ namespace
 		}
 		return 0.f;
 	}
+
+	/** True when this heading leaves the upper floor back down a road. */
+	bool HeadingDownRamp(const ANeonArena& Arena, const FVector2D& WorldPos, const FVector2D& Head)
+	{
+		const FVector Center = Arena.GetActorLocation();
+		const FVector2D Local(WorldPos.X - Center.X, WorldPos.Y - Center.Y);
+		for (const ANeonArena::FConnector& C : Arena.CachedConnectors)
+		{
+			const float DX = Local.X - C.Origin.X;
+			const float DY = Local.Y - C.Origin.Y;
+			const float Along = DX * C.Dir.X + DY * C.Dir.Y;
+			const float Across = DX * -C.Dir.Y + DY * C.Dir.X;
+			const bool bNear = Along >= -600.f && Along <= C.Length + 1400.f && FMath::Abs(Across) <= C.HalfWidth + 500.f;
+			if (bNear && FVector2D::DotProduct(Head, C.Dir) < -0.2f)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
 }
 
 ANeonAIController::ANeonAIController()
@@ -364,11 +384,18 @@ void ANeonAIController::Decide(bool bEmergency)
 			+ (bContinuation ? P.CommitBias : 0.f);
 
 		// Look past the survival horizon so a line aimed at a pit loses while a small turn still clears it.
+		// Upstairs the holes are a nudge. Turning around and riding the ramp back down loses to staying on the deck.
 		if (S.bSurvives)
 		{
 			if (const ANeonArena* Arena = ANeonArena::FindArena(GetWorld()))
 			{
-				S.Score -= 2.4f * PitAim(*Arena, M.GetSimLayer(), S.EndPos, DirectionFromHeading(S.EndHeading));
+				const FVector2D Head = DirectionFromHeading(S.EndHeading);
+				const float PitWeight = M.GetSimLayer() > 0 ? 0.6f : 2.4f;
+				S.Score -= PitWeight * PitAim(*Arena, M.GetSimLayer(), S.EndPos, Head);
+				if (M.GetSimLayer() > 0 && HeadingDownRamp(*Arena, S.EndPos, Head))
+				{
+					S.Score -= 3.4f;
+				}
 			}
 		}
 
@@ -1060,20 +1087,11 @@ float ANeonAIController::ScoreFloor(const UNeonMovementComponent& M, const FPlan
 		return 0.f;
 	}
 
-	float Stay = 0.85f;
-	for (const ANeonArena::FConnector& C : Arena->CachedConnectors)
+	if (HeadingDownRamp(*Arena, Sample.EndPos, Head))
 	{
-		const float DX = LocalEnd.X - C.Origin.X;
-		const float DY = LocalEnd.Y - C.Origin.Y;
-		const float Along = DX * C.Dir.X + DY * C.Dir.Y;
-		const float Across = DX * -C.Dir.Y + DY * C.Dir.X;
-		if (Along >= 0.f && Along <= C.Length && FMath::Abs(Across) <= C.HalfWidth
-			&& FVector2D::DotProduct(Head, C.Dir) < -0.2f)
-		{
-			Stay = 0.15f;
-		}
+		return 0.f;
 	}
-	return Stay;
+	return 1.f;
 }
 
 bool ANeonAIController::FindNearestPickup(const UNeonMovementComponent& M, const FNeonAIDifficultyParams& P, FVector2D& OutPos) const

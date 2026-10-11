@@ -93,6 +93,12 @@ ANeonArena::ANeonArena()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickGroup = TG_PostPhysics;
 
+	// The level does not place an arena; the server spawns one. Clients need that actor, its camera,
+	// and its lights or they connect to an empty black view.
+	bReplicates = true;
+	bAlwaysRelevant = true;
+	SetReplicateMovement(false);
+
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	SetRootComponent(Root);
 
@@ -168,6 +174,12 @@ void ANeonArena::OnConstruction(const FTransform& Transform)
 
 void ANeonArena::BeginPlay()
 {
+	// A Blueprint default can save bReplicates off and override the constructor. Register again on the server.
+	if (HasAuthority())
+	{
+		SetReplicates(true);
+		bAlwaysRelevant = true;
+	}
 	Super::BeginPlay();
 	ActiveLayout = 1;
 	BuildTerrainMesh();
@@ -1491,7 +1503,20 @@ bool ANeonArena::HitsCeiling(FVector2D WorldXY, float BelowZ, float AboveZ, floa
 
 void ANeonArena::EnsureFloorMaterial()
 {
-	if (FloorMaterial && FloorTexture)
+	if (FloorMaterial)
+	{
+		return;
+	}
+
+	// The map's authored grid. A runtime checker is only the fallback when that asset is missing.
+	UMaterialInterface* Authored = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/NeonGrid/Materials/M_TronGrid.M_TronGrid"));
+	if (Authored)
+	{
+		FloorMaterial = UMaterialInstanceDynamic::Create(Authored, this);
+		return;
+	}
+
+	if (FloorTexture)
 	{
 		return;
 	}

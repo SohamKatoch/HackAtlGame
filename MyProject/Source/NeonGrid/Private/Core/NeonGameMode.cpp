@@ -105,7 +105,10 @@ void ANeonGameMode::PostLogin(APlayerController* NewPlayer)
 		const int32 Slot = FMath::Clamp(CountHumans() - 1, 0, 3);
 		PS->SetSlot(Slot);
 		PS->SetIsAI(false);
-		PS->SetPlayerName(SlotLabel(Slot));
+		if (NewPlayer->IsLocalController())
+		{
+			PS->SetPlayerName(FPlatformProcess::ComputerName());
+		}
 		if (SlotColors.IsValidIndex(Slot))
 		{
 			PS->SetColor(SlotColors[Slot]);

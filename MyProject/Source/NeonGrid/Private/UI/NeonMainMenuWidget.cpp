@@ -14,6 +14,10 @@
 #include "Components/WidgetSwitcher.h"
 #include "Core/NeonGameInstance.h"
 #include "Core/NeonPlayerController.h"
+#include "Core/NeonPlayerState.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerState.h"
+#include "SocketSubsystem.h"
 #include "UI/NeonUIStyle.h"
 
 #define LOCTEXT_NAMESPACE "NeonGrid"
@@ -57,6 +61,26 @@ void UNeonMainMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaT
 	Super::NativeTick(MyGeometry, InDeltaTime);
 	if (Pages && Pages->GetActiveWidgetIndex() == 2)
 	{
+		const UWorld* World = GetWorld();
+		const ENetMode Mode = World ? World->GetNetMode() : NM_Standalone;
+		if (Mode == NM_Standalone)
+		{
+			LanScanWait -= InDeltaTime;
+			if (LanScanWait <= 0.f)
+			{
+				LanScanWait = 4.f;
+				if (const UNeonGameInstance* GI = GetGameInstance<UNeonGameInstance>())
+				{
+					if (!GI->IsSearchingLan())
+					{
+						if (ANeonPlayerController* PC = Cast<ANeonPlayerController>(GetOwningPlayer()))
+						{
+							PC->RequestFindLan();
+						}
+					}
+				}
+			}
+		}
 		RefreshLanPage();
 	}
 }
@@ -236,13 +260,31 @@ void UNeonMainMenuWidget::BuildTree()
 	Pages->AddChild(Lan);
 
 	AddPageTitle(WidgetTree, Lan, LOCTEXT("LanTitle", "LOCAL LINK"));
-	AddRow(Lan, MakeHint(WidgetTree, LOCTEXT("LanHint", "OPEN LINK ADVERTISES THIS GRID ON THE LAN.  SCAN TO SEE HOSTS.  NODE ADDRESS IS THE FALLBACK.  SAME 5.8 BUILD.  ALLOW THE EDITOR ON PRIVATE NETWORKS.")), 12.f)->SetHorizontalAlignment(HAlign_Fill);
+	AddRow(Lan, MakeHint(WidgetTree, LOCTEXT("LanHint", "OPEN LINK SHOWS YOUR ADDRESS.  OTHER PCS SCAN ON THEIR OWN AND JOIN IN ONE CLICK.  SAME BUILD.  ALLOW THE GAME ON PRIVATE NETWORKS.")), 12.f)->SetHorizontalAlignment(HAlign_Fill);
 
 	AddRow(Lan, MakeSectionLabel(WidgetTree, LOCTEXT("HostSection", "HOST")), 22.f)->SetHorizontalAlignment(HAlign_Fill);
 	LanHostButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Host", "OPEN LINK"), 22);
 	AddRow(Lan, LanHostButton, 8.f)->SetHorizontalAlignment(HAlign_Fill);
 
-	AddRow(Lan, MakeSectionLabel(WidgetTree, LOCTEXT("ScanSection", "NETWORK GAMES")), 20.f)->SetHorizontalAlignment(HAlign_Fill);
+	LanHostAddressText = NeonUI::MakeCaps(WidgetTree, FText::GetEmpty(), 16, NeonUI::Accent, 2);
+	LanHostAddressText->SetAutoWrapText(true);
+	LanHostAddressText->SetVisibility(ESlateVisibility::Collapsed);
+	AddRow(Lan, LanHostAddressText, 8.f)->SetHorizontalAlignment(HAlign_Fill);
+
+	LanPilotBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+	LanPilotBox->AddChildToVerticalBox(MakeSectionLabel(WidgetTree, LOCTEXT("Pilots", "PILOTS")))->SetPadding(FMargin(0.f, 18.f, 0.f, 6.f));
+	for (int32 i = 0; i < 4; ++i)
+	{
+		UTextBlock* Pilot = NeonUI::MakeCaps(WidgetTree, LOCTEXT("OpenSlot", "OPEN"), 16, NeonUI::Text, 2);
+		Pilot->SetJustification(ETextJustify::Left);
+		LanPilotBox->AddChildToVerticalBox(Pilot)->SetPadding(FMargin(0.f, 4.f, 0.f, 0.f));
+		LanPilotLabels.Add(Pilot);
+	}
+	LanPilotBox->SetVisibility(ESlateVisibility::Collapsed);
+	AddRow(Lan, LanPilotBox, 4.f)->SetHorizontalAlignment(HAlign_Fill);
+
+	LanBrowseLabel = MakeSectionLabel(WidgetTree, LOCTEXT("ScanSection", "NETWORK GAMES"));
+	AddRow(Lan, LanBrowseLabel, 20.f)->SetHorizontalAlignment(HAlign_Fill);
 	LanScanButton = NeonUI::MakeButton(WidgetTree, LOCTEXT("Scan", "SCAN NETWORK"), 20);
 	AddRow(Lan, LanScanButton, 8.f)->SetHorizontalAlignment(HAlign_Fill);
 
@@ -265,7 +307,8 @@ void UNeonMainMenuWidget::BuildTree()
 		LanGameJoinButtons.Add(Join);
 	}
 
-	AddRow(Lan, MakeSectionLabel(WidgetTree, LOCTEXT("JoinAddress", "NODE ADDRESS")), 20.f)->SetHorizontalAlignment(HAlign_Fill);
+	LanAddressLabel = MakeSectionLabel(WidgetTree, LOCTEXT("JoinAddress", "NODE ADDRESS"));
+	AddRow(Lan, LanAddressLabel, 20.f)->SetHorizontalAlignment(HAlign_Fill);
 	LanAddressBox = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass());
 	LanAddressBox->SetHintText(LOCTEXT("IpHint", "192.168.1.10"));
 	LanAddressBox->SetJustification(ETextJustify::Center);
@@ -460,8 +503,102 @@ void UNeonMainMenuWidget::RefreshLanPage()
 	{
 		LanScanButton->SetVisibility((bHost || bClient) ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 	}
+	const ESlateVisibility BrowseVis = (bHost || bClient) ? ESlateVisibility::Collapsed : ESlateVisibility::Visible;
+	if (LanBrowseLabel) { LanBrowseLabel->SetVisibility(BrowseVis); }
+	if (LanAddressLabel) { LanAddressLabel->SetVisibility(BrowseVis); }
+	if (LanAddressBox) { LanAddressBox->SetVisibility(BrowseVis); }
+	if (LanJoinButton) { LanJoinButton->SetVisibility(BrowseVis); }
+
+	if (LanHostAddressText)
+	{
+		LanHostAddressText->SetVisibility(bHost ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		if (bHost)
+		{
+			FString Ip;
+			if (ISocketSubsystem* Sockets = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
+			{
+				TArray<TSharedPtr<FInternetAddr>> Addrs;
+				Sockets->GetLocalAdapterAddresses(Addrs);
+				for (const TSharedPtr<FInternetAddr>& Addr : Addrs)
+				{
+					if (!Addr.IsValid() || !Addr->IsValid())
+					{
+						continue;
+					}
+					const FString Candidate = Addr->ToString(false);
+					if (Candidate.IsEmpty() || Candidate.StartsWith(TEXT("127.")))
+					{
+						continue;
+					}
+					if (!Candidate.Contains(TEXT(":")))
+					{
+						Ip = Candidate;
+						break;
+					}
+				}
+			}
+			LanHostAddressText->SetText(Ip.IsEmpty()
+				? LOCTEXT("NoIp", "ADDRESS UNKNOWN.  OTHERS CAN STILL SCAN.")
+				: FText::Format(LOCTEXT("HostIp", "TELL THEM  {0}    PORT 7777"), FText::FromString(Ip)));
+		}
+	}
+
+	if (LanPilotBox)
+	{
+		LanPilotBox->SetVisibility((bHost || bClient) ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		if (bHost || bClient)
+		{
+			TArray<const APlayerState*> Pilots;
+			int32 HostPlayerId = MAX_int32;
+			if (World && World->GetGameState())
+			{
+				for (APlayerState* PS : World->GetGameState()->PlayerArray)
+				{
+					const ANeonPlayerState* NeonPS = Cast<ANeonPlayerState>(PS);
+					if (!PS || (NeonPS && NeonPS->IsAI()))
+					{
+						continue;
+					}
+					Pilots.Add(PS);
+					HostPlayerId = FMath::Min(HostPlayerId, PS->GetPlayerId());
+				}
+			}
+			for (int32 i = 0; i < LanPilotLabels.Num(); ++i)
+			{
+				if (!LanPilotLabels[i])
+				{
+					continue;
+				}
+				if (!Pilots.IsValidIndex(i))
+				{
+					LanPilotLabels[i]->SetText(LOCTEXT("OpenSlot", "OPEN"));
+					LanPilotLabels[i]->SetColorAndOpacity(FSlateColor(FLinearColor(NeonUI::Text.R, NeonUI::Text.G, NeonUI::Text.B, 0.45f)));
+					continue;
+				}
+				const APlayerState* PS = Pilots[i];
+				FString Name = PS->GetPlayerName().TrimStartAndEnd();
+				if (Name.IsEmpty())
+				{
+					Name = TEXT("CONNECTING");
+				}
+				const bool bThisHost = PS->GetPlayerId() == HostPlayerId;
+				LanPilotLabels[i]->SetText(FText::FromString(FString::Printf(TEXT("%s    %s"),
+					bThisHost ? TEXT("HOST") : TEXT("PILOT"), *Name.ToUpper())));
+				LanPilotLabels[i]->SetColorAndOpacity(FSlateColor(bThisHost ? NeonUI::Accent : NeonUI::Text));
+			}
+		}
+	}
 
 	const TArray<FNeonLanGame>& Games = GI ? GI->GetLanGames() : TArray<FNeonLanGame>();
+	if (!bHost && !bClient && Games.Num() == 1 && !Games[0].Address.IsEmpty() && LanAddressBox)
+	{
+		const FString Current = LanAddressBox->GetText().ToString().TrimStartAndEnd();
+		if (Current.IsEmpty() || Current == TEXT("127.0.0.1") || Current == LastAutofillAddress)
+		{
+			LanAddressBox->SetText(FText::FromString(Games[0].Address));
+			LastAutofillAddress = Games[0].Address;
+		}
+	}
 	for (int32 i = 0; i < LanGameRows.Num(); ++i)
 	{
 		UWidget* Row = LanGameRows[i];
@@ -474,8 +611,9 @@ void UNeonMainMenuWidget::RefreshLanPage()
 		if (bShow && LanGameLabels.IsValidIndex(i) && LanGameLabels[i])
 		{
 			const FNeonLanGame& G = Games[i];
-			LanGameLabels[i]->SetText(FText::FromString(FString::Printf(TEXT("%s    %d/%d    %d MS"),
-				*G.HostName, G.Players, FMath::Max(G.MaxPlayers, 1), G.PingMs)));
+			const FString Where = G.Address.IsEmpty() ? FString() : FString::Printf(TEXT("    %s"), *G.Address);
+			LanGameLabels[i]->SetText(FText::FromString(FString::Printf(TEXT("%s    %d/%d%s"),
+				*G.HostName, G.Players, FMath::Max(G.MaxPlayers, 1), *Where)));
 		}
 	}
 }

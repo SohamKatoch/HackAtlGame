@@ -18,6 +18,8 @@
 #include "NeonGrid.h"
 #include "UI/NeonHUDWidget.h"
 #include "UI/NeonMainMenuWidget.h"
+#include "Trail/NeonCollisionSystem.h"
+#include "Trail/NeonTrailComponent.h"
 #include "Vehicle/NeonMovementComponent.h"
 #include "Vehicle/NeonVehiclePawn.h"
 
@@ -50,6 +52,80 @@ void ANeonPlayerController::BeginPlay()
 
 	EnsureUI();
 	BindGameState();
+	SubmitLobbyName();
+}
+
+void ANeonPlayerController::ReceivedPlayer()
+{
+	Super::ReceivedPlayer();
+	SubmitLobbyName();
+}
+
+void ANeonPlayerController::SubmitLobbyName()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+	const FString Name = FPlatformProcess::ComputerName();
+	if (Name.IsEmpty())
+	{
+		return;
+	}
+	if (HasAuthority())
+	{
+		if (APlayerState* PS = GetPlayerState<APlayerState>())
+		{
+			PS->SetPlayerName(Name);
+		}
+	}
+	else
+	{
+		ServerSetLobbyName(Name);
+	}
+}
+
+void ANeonPlayerController::ServerSendInput_Implementation(FNeonVehicleInput Input)
+{
+	if (ANeonVehiclePawn* Vehicle = Cast<ANeonVehiclePawn>(GetPawn()))
+	{
+		if (UNeonMovementComponent* Movement = Vehicle->GetMovement())
+		{
+			Movement->SetInput(Input);
+		}
+	}
+}
+
+void ANeonPlayerController::ClientApplyPose_Implementation(FVector Location, float Yaw, int32 SimTick)
+{
+	if (ANeonVehiclePawn* Vehicle = Cast<ANeonVehiclePawn>(GetPawn()))
+	{
+		if (UNeonMovementComponent* Movement = Vehicle->GetMovement())
+		{
+			Movement->ReconcilePredictedPose(Location, Yaw, SimTick);
+		}
+	}
+}
+
+void ANeonPlayerController::SendPoseToClient(FVector Location, float Yaw, int32 SimTick)
+{
+	if (HasAuthority() && !IsLocalController())
+	{
+		ClientApplyPose(Location, Yaw, SimTick);
+	}
+}
+
+void ANeonPlayerController::ServerSetLobbyName_Implementation(const FString& Name)
+{
+	FString Clean = Name.Left(32).TrimStartAndEnd();
+	if (Clean.IsEmpty())
+	{
+		return;
+	}
+	if (APlayerState* PS = GetPlayerState<APlayerState>())
+	{
+		PS->SetPlayerName(Clean);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -172,10 +248,24 @@ void ANeonPlayerController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
 	CurrentInput = FNeonVehicleInput();
+	ViewPossessedVehicle(Cast<ANeonVehiclePawn>(InPawn));
+}
 
+void ANeonPlayerController::AcknowledgePossession(APawn* P)
+{
+	// OnPossess runs on the server only. The joining player gets their pawn here.
+	Super::AcknowledgePossession(P);
+	ViewPossessedVehicle(Cast<ANeonVehiclePawn>(P));
+}
+
+void ANeonPlayerController::ViewPossessedVehicle(ANeonVehiclePawn* Vehicle)
+{
+	if (!Vehicle || !IsLocalController())
+	{
+		return;
+	}
 	const ANeonGameState* GS = GetWorld() ? GetWorld()->GetGameState<ANeonGameState>() : nullptr;
-	if (ANeonVehiclePawn* Vehicle = Cast<ANeonVehiclePawn>(InPawn);
-		Vehicle && IsLocalController() && (!GS || GS->GetPhase() != ENeonMatchPhase::MainMenu))
+	if (!GS || GS->GetPhase() != ENeonMatchPhase::MainMenu)
 	{
 		ViewVehicle(Vehicle, ViewBlendTime);
 	}
@@ -190,16 +280,32 @@ void ANeonPlayerController::PlayerTick(float DeltaTime)
 		BindGameState(); // game state may replicate after BeginPlay on clients
 	}
 
-	if (ANeonVehiclePawn* Vehicle = Cast<ANeonVehiclePawn>(GetPawn()))
+	if (IsLocalController())
 	{
-		if (UNeonMovementComponent* Movement = Vehicle->GetMovement())
+		if (ANeonVehiclePawn* Vehicle = Cast<ANeonVehiclePawn>(GetPawn()))
 		{
-			Movement->SetInput(CurrentInput);
+			if (UNeonMovementComponent* Movement = Vehicle->GetMovement())
+			{
+				// Local prediction reads this immediately. The host still owns the authoritative step.
+				Movement->SetInput(CurrentInput);
+				if (!HasAuthority())
+				{
+					ServerSendInput(CurrentInput);
+				}
+			}
 		}
 	}
 
 	if (IsLocalController())
 	{
+		const ANeonGameState* GS = BoundGameState.Get();
+		if (!GS || GS->GetPhase() == ENeonMatchPhase::MainMenu)
+		{
+			if (!Cast<ANeonArena>(GetViewTarget()))
+			{
+				ViewArena();
+			}
+		}
 		UpdateSpectating();
 	}
 }
@@ -523,6 +629,24 @@ void ANeonPlayerController::BindGameState()
 
 void ANeonPlayerController::HandlePhaseChanged(ENeonMatchPhase NewPhase)
 {
+	// Trails on a client are a local drawing of the host's bikes. Drop them when a round resets.
+	if (!HasAuthority() && (NewPhase == ENeonMatchPhase::Countdown || NewPhase == ENeonMatchPhase::MainMenu))
+	{
+		if (UWorld* World = GetWorld())
+		{
+			if (UNeonCollisionSystem* Collision = World->GetSubsystem<UNeonCollisionSystem>())
+			{
+				Collision->ClearAllTrails();
+			}
+			for (TActorIterator<ANeonVehiclePawn> It(World); It; ++It)
+			{
+				if (UNeonTrailComponent* Trail = It->FindComponentByClass<UNeonTrailComponent>())
+				{
+					Trail->ResetTrail();
+				}
+			}
+		}
+	}
 	ApplyPhaseUI(NewPhase);
 }
 
@@ -564,7 +688,15 @@ void ANeonPlayerController::ApplyPhaseUI(ENeonMatchPhase Phase)
 		MainMenuWidget->SetVisibility(bMenu ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 		if (bMenu)
 		{
-			MainMenuWidget->ShowMainPage();
+			const ENetMode Mode = GetNetMode();
+			if (Mode == NM_Client || Mode == NM_ListenServer)
+			{
+				MainMenuWidget->ShowLanPage();
+			}
+			else
+			{
+				MainMenuWidget->ShowMainPage();
+			}
 		}
 	}
 	if (HUDWidget)

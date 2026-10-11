@@ -188,6 +188,14 @@ void UNeonGameInstance::HandleFindSessions(bool bSuccess)
 		Game.MaxPlayers = Result.Session.SessionSettings.NumPublicConnections;
 		Game.Players = Game.MaxPlayers - Result.Session.NumOpenPublicConnections;
 		Game.PingMs = Result.PingInMs;
+		if (SessionsFor(GetWorld()))
+		{
+			FString Connect;
+			if (SessionsFor(GetWorld())->GetResolvedConnectString(Result, NAME_GamePort, Connect))
+			{
+				Game.Address = Connect;
+			}
+		}
 		LanGames.Add(Game);
 	}
 
@@ -207,6 +215,12 @@ void UNeonGameInstance::JoinLanGame(int32 SearchIndex)
 	if (!Sessions || !SessionSearch || !SessionSearch->SearchResults.IsValidIndex(SearchIndex))
 	{
 		LanStatus = LOCTEXT("JoinStale", "SCAN AGAIN, THEN JOIN.");
+		return;
+	}
+
+	if (LanGames.IsValidIndex(SearchIndex) && !LanGames[SearchIndex].Address.IsEmpty())
+	{
+		JoinListen(LanGames[SearchIndex].Address);
 		return;
 	}
 
